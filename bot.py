@@ -348,7 +348,7 @@ async def moderate_message(update: Update, context: ContextTypes.DEFAULT_TYPE):
                     sanitization_method = "Regex Sanitization"
 
                 # Build vouch message regardless of vinfo (failsafe)
-                vouch_message = f"🛡️ **Vouch Sanitized** ({sanitization_method})\n{username}\n\n{vouch_content}\n\n_Prohibited content removed_"
+                vouch_message = f"{username}\n\n{vouch_content}"
                 
                 # ALWAYS pre-store dirty vouches BEFORE deletion (critical data preservation)
                 # Extract fallback polarity/target if vinfo is None
