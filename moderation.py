@@ -178,11 +178,10 @@ def is_vouch(text: str) -> bool:
         'scammer', 'scam', 'do not recommend', 'vouch against',
     ]
     
-    # Build composite regex pattern: (vouch keyword) followed by @ with word boundary
-    # Use non-greedy .* to prevent matching far-away mentions
-    # Key fix: Use word boundary \b before @, not just .*
+    # Build composite regex pattern: Match EITHER order
+    # Pattern 1: keyword...@username OR Pattern 2: @username...keyword
     keyword_pattern = r'(' + '|'.join([re.escape(kw).replace(r'\ ', r'\s+') for kw in vouch_keywords]) + r')'
-    composite_pattern = keyword_pattern + r'(?:\s+|.{0,20}?)\s@[_a-zA-Z0-9-]+'  # Include dashes in username
+    composite_pattern = r'(?:' + keyword_pattern + r'.*@\w+|@\w+.*' + keyword_pattern + r')'
     
     return bool(re.search(composite_pattern, text_lower))
 
