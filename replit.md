@@ -75,11 +75,16 @@ The bot is already configured and running! Here's what's been set up:
 ### For Everyone:
 - `/start` - Show bot info and features
 - `/help` - Complete user guide
+- `/vouch @user note` - Quick positive vouch (sanitized automatically)
+- `/neg @user note` - Negative vouch / warning
+- `/ask @user` - Bot posts a poll asking if the user is vouched
 - `/mystats` - Check your violation history and strikes
 - `/vouches [@username]` - Search vouches or view statistics
 
 ### For Admins:
 - `/stats` - View comprehensive moderation dashboard
+
+> Tip: the bot now posts a reminder every 6 hours (auto-deletes after 1 hour) explaining how to use `/vouch`, `/neg`, `/ask`, and `/vouches` so new members stay on the same page.
 
 ## Technical Details
 
@@ -173,9 +178,10 @@ This bot is configured for **Autoscale** deployment - the most cost-effective op
 ### To Deploy:
 1. Click the **Deploy** button in Replit
 2. Choose **Autoscale** deployment
-3. The bot will be live 24/7, browser closed
-4. All secrets are automatically included
-5. Only pay for actual usage (~$2-5/month)
+3. Set `RUN_MODE=webhook`, `PORT=5000`, and `WEBHOOK_URL=https://<repl-slug>.<username>.repl.co/webhook` (or `.replit.dev`) in Secrets
+4. The bot will be live 24/7, browser closed
+5. All secrets are automatically included
+6. Only pay for actual usage (~$2-5/month)
 
 **Cost Breakdown:**
 - Base fee: $1/month
@@ -188,4 +194,4 @@ This bot is configured for **Autoscale** deployment - the most cost-effective op
 **Environment:** Replit  
 **Python Version:** 3.11  
 **Bot Framework:** python-telegram-bot 20.7  
-**Deployment:** Configured for Reserved VM
+**Deployment:** Configured for Autoscale webhook (`python bot.py`)

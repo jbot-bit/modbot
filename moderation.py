@@ -7,6 +7,7 @@ import logging
 import httpx
 import json
 import asyncio
+import importlib
 from typing import Dict, Optional, Tuple
 from collections import defaultdict
 from datetime import datetime, timedelta
@@ -22,6 +23,12 @@ from config import (
 )
 
 logger = logging.getLogger(__name__)
+MENTION_REGEX = re.compile(r'@[\w\d_]+')
+
+
+def strip_mentions(text: str) -> str:
+    """Remove @handles so keyword scans don't trigger on names."""
+    return MENTION_REGEX.sub(" ", text or "")
 
 # ============================================================================
 # TOXIC-BERT MODEL INITIALIZATION (Local AI - Zero Cost)
@@ -42,6 +49,13 @@ def initialize_toxic_classifier():
     This layer catches harassment/toxicity BEFORE Groq AI calls, saving $$.
     """
     global toxic_classifier
+    if (
+        importlib.util.find_spec("transformers") is None
+        or importlib.util.find_spec("torch") is None
+    ):
+        logger.info("transformers/torch not installed - skipping Toxic-BERT layer")
+        toxic_classifier = None
+        return
     try:
         from transformers import pipeline
         toxic_classifier = pipeline(
@@ -147,6 +161,25 @@ def check_toxicity(text: str) -> Tuple[bool, str]:
         return False, ""
 
 
+def is_vouch_request(text: str) -> bool:
+    """Detect when someone is asking for vouches rather than giving one."""
+    if not text or "vouch" not in text:
+        return False
+
+    normalized = re.sub(r"\s+", " ", text.strip().lower())
+    request_patterns = [
+        r"\bany(?:one)?\s+vouches?\b",
+        r"\bany\s+vouches?\s+on\b",
+        r"\bvouches?\s*\?",
+        r"\bcan\s+(?:someone|anyone|ya|yall)\s+vouch\b",
+        r"\bwho\s+(?:can|able\s+to)\s+vouch\b",
+        r"\bneed(?:s)?\s+(?:a\s+)?vouch\b",
+        r"\blooking\s+for\s+vouch",
+        r"\bvouch(?:es)?\s+on\b",
+    ]
+    return any(re.search(pattern, normalized) for pattern in request_patterns)
+
+
 def is_vouch(text: str) -> bool:
     """
     Detect if message is a vouch (vouching for someone)
@@ -164,6 +197,8 @@ def is_vouch(text: str) -> bool:
         return False
     
     text_lower = text.lower()
+    if is_vouch_request(text_lower):
+        return False
     
     # Comprehensive vouch keywords (from prime directive)
     vouch_keywords = [
@@ -281,6 +316,7 @@ def check_patterns(text: str, user_id: int = None) -> Tuple[bool, str, str]:
         return False, "", "low"
     
     text_lower = text.lower()
+    text_no_mentions = strip_mentions(text_lower)
     
     # CRITICAL VIOLATIONS (zero tolerance)
     critical_keywords = ['cp link', 'child porn', 'underage nudes', 'preteen', 'kiddie porn']
@@ -290,12 +326,12 @@ def check_patterns(text: str, user_id: int = None) -> Tuple[bool, str, str]:
     
     # Method 1: Aho-Corasick (fastest)
     if automaton:
-        for end_index, (category, pattern) in automaton.iter(text_lower):
+        for end_index, (category, pattern) in automaton.iter(text_no_mentions):
             if category == 'scam_domain':
                 return True, f"Scam link detected: {pattern}", "high"
             elif category == 'banned_keyword':
                 # More context-aware keyword checking
-                if is_contextual_violation(text_lower, pattern):
+                if is_contextual_violation(text_no_mentions, pattern):
                     # Determine severity based on keyword
                     if any(kw in pattern for kw in ['drug', 'weapon', 'fake passport', 'counterfeit']):
                         return True, f"Illegal content: {pattern}", "high"
@@ -313,7 +349,7 @@ def check_patterns(text: str, user_id: int = None) -> Tuple[bool, str, str]:
                 return True, f"Scam link detected: {domain}", "high"
         
         for keyword in BANNED_KEYWORDS_FLAT:
-            if keyword.lower() in text_lower and is_contextual_violation(text_lower, keyword):
+            if keyword.lower() in text_no_mentions and is_contextual_violation(text_no_mentions, keyword):
                 if any(kw in keyword.lower() for kw in ['drug', 'weapon', 'fake passport']):
                     return True, f"Illegal content: {keyword}", "high"
                 else:
@@ -715,6 +751,8 @@ def extract_vouch_info(text: str, from_username: Optional[str] = None) -> Option
 
     txt = text.strip()
     txt_lower = txt.lower()
+    if is_vouch_request(txt_lower):
+        return None
 
     # Find all mentions like @username (is_vouch() already verified at least one exists)
     mentions = re.findall(r'@[_a-zA-Z0-9-]+', txt)

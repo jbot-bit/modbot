@@ -56,12 +56,11 @@ BANNED_KEYWORDS = {
         # **Abbreviations & Direct References (ALWAYS BLOCK)**
         "kys", "kill yourself", "kms", "kill myself", "you should die",
         
-        # **Cannabis & Marijuana (From Logs: "green", "buds", "smoke", "smoko")**
-        "cannabis", "marijuana", "weed", "pot", "bud", "buds", "uds", "green", "herb", "ganja", "mary jane",
+        # **Cannabis & Marijuana (From Logs: "buds", "gas", "bluntz")**
+        "cannabis", "marijuana", "weed", "pot", "buds", "budz", "uds", "ganja", "mary jane",
         "420", "thc", "dank", "dope", "skunk", "reefer", "chronic", "kush", "haze", "indica",
         "sativa", "edibles", "gummies", "thc vape", "dabs", "wax", "shatter", "hash", "hashish",
-        "buy weed", "weed for sale", "sell weed", "get bud", "thc carts", "buy edibles", "weed drop",
-        "smoke", "smoko", "got ons", "whos got green",
+        "bluntz", "buy weed", "weed for sale", "sell weed", "get bud", "thc carts", "buy edibles", "weed drop",
 
         # **Cocaine & Crack (From Logs: "rack", "coke", "charlie")**
         "cocaine", "coke", "crack", "blow", "snow", "white girl", "yayo", "charli", "cola",
@@ -84,7 +83,7 @@ BANNED_KEYWORDS = {
         "caps", "crystals", "buy mdma", "mdma for sale", "molly for sale", "get pingas",
 
         # **Psychedelics (From Logs: "shrooms", "acid", "tabs")**
-        "lsd", "acid", "tabs", "blotter", "lucy", "shrooms", "mushrooms", "psilocybin", "magic mushrooms",
+        "lsd", "acid", "tabs", "blotter", "lucy", "shrooms", "mushrooms", "mushies", "psilocybin", "magic mushrooms",
         "dmt", "mescaline", "2cb", "2c-b", "buy lsd", "lsd for sale", "get shrooms",
 
         # **Benzodiazepines & Sedatives (From Logs: "xanax", "xans", "bars", "vals", "clonz")**
@@ -108,16 +107,12 @@ BANNED_KEYWORDS = {
 
     # --- 2. TRANSACTION & INTENT PHRASES (From Logs: "chasing", "drop", "f2f") ---
     "transaction_phrases": [
-        "for sale", "available", "on deck", "in stock", "menu", "price list", "pricelist",
-        "chasing", "looking for", "need", "want to buy", "wtb", "w2b", "source",
-        "vendor", "dealer", "supplier", "drop", "delivery", "shipping", "postage",
-        "meetup", "f2f", "face to face", "pick up", "collection",
-        "payid", "crypto only", "btc", "eth", "xmr", "monero",
-        "hmu", "hit me up", "dm me", "pm me", "inbox me",
-        "bulk deals", "bulk pricing", "wholesale", "oz", "ounce", "qp", "quarter pound",
-        "hp", "half pound", "pound", "brick", "kilo", "sheet", "bots", "bottle",
-        "how much for", "what's the price on", "got any", "anyone got", "who's on", "active",
-        "score", "cop", "re-up", "reup", "serving", "slangin", "trapping",
+        "for sale", "price list", "pricelist",
+        "wtb", "w2b",
+        "hit me up", "dm me", "pm me", "inbox me",
+        "bulk deals", "bulk pricing", "wholesale",
+        "how much for",
+        "re-up", "reup",
     ],
 
     # --- 3. SPAM, SCAM & MALICIOUS CONTENT ---
@@ -159,6 +154,9 @@ SUSPICIOUS_PATTERNS = [
     r"\b(?:buy|sell|trade|purchase|selling|offer)\s+(?:drugs|weed|cocaine|heroin|meth|pills|xanax|oxy|fentanyl|mdma|lsd)\b",
     r"\b(?:cocaine|heroin|meth|fentanyl|xanax|oxy|drugs)\s+(?:available|for sale|in stock|pm me|message me|hit me up)\b",
     r"\b(?:been|been\s+buying|been\s+selling|was\s+buying)\s+(?:cocaine|heroin|meth|drugs|weed|fentanyl)\b",
+    r"\b\d+(?:\.\d+)?\s*(?:oz|ounce|ounces)\b",
+    r"\b(?:half|quarter)\s*(?:oz|ounce|ounces)\b",
+    r"\b(?:quarter\s*pound|qp|qps)\b",
     
     # Counterfeit & illegal documents
     r"\b(?:counterfeit|fake|forged)\s+(?:money|bills|passport|id|license|documents|ssn)\b",
@@ -243,17 +241,17 @@ _This message will self-destruct in {delay} seconds._
 """
 
 WELCOME_MESSAGE = """
-🛡️ **Advanced Moderation Bot Active**
+?Y>???? **Advanced Moderation Bot Active**
 
-This bot automatically monitors and removes content that violates Telegram's Terms of Service. 
+This bot keeps the chat compliant **and** makes vouching simple.
 
-**🚫 What Gets Removed:**
-• Illegal content (drugs, weapons, fake documents)
-• Extreme harassment and threats
-• Spam and excessive advertising
-• + anything else against Telegram's ToS
+**?Ys? Commands you need:**
+??? /vouch @user note - positive vouch
+??? /neg @user note - negative vouch/warning
+??? /ask @user - bot posts a poll asking if the user is vouched
+??? /vouches @user - see stored vouches
 
-_Keeping our community safe and TOS-compliant!_ ✨
+Automated filters still remove anything that breaks Telegram's TOS (illegal goods, harassment, spam, scams). Stay safe & keep it clean!
 """
 
 STATS_MESSAGE = """
@@ -279,20 +277,32 @@ _Protecting your community 24/7_
 """
 
 HELP_MESSAGE = """
-🛡️ **Moderation Bot - Complete Guide**
+?Y>???? **How to use this group**
 
-**📋 How It Works:**
-1. Bot monitors all group messages
-2. Removes TOS-violating content instantly
+**?Y"S Fast vouch workflow**
+??? /vouch @user note - record a positive vouch (bot sanitizes risky wording)
+??? /neg @user note - record a negative vouch or warning
+??? /ask @user - bot posts a quick poll so the group can weigh in
+??? /vouches @user - search stored vouches before trading
 
-**⚡ Commands:**
-• `/start` - Show bot info and status
-• `/help` - This help message
-• `/stats` - View detailed statistics (admin only)
-• `/mystats` - Check your personal violation history
+**?s? Other commands**
+??? /start - Bot overview
+??? /help - This message
+??? /mystats - Your strike history
+??? /stats - Moderation dashboard (admin only)
 
-**❓ Questions?**
-Contact a group admin or check the pinned message.
-
-This bot helps maintain transparency in the community while complying with local laws and Telegram’s Terms of Service. 🛡️
+Moderation still removes illegal content, scams, spam, harassment and anything against Telegram TOS. Keep explicit details out of the chat and stay safe. ?Y>????
 """
+
+GUIDE_MESSAGE = """
+?Y"S **Using this group effectively**
+- Use /vouch @user note for positives and /neg @user note for warnings.
+- Need confirmation? /ask @user posts a poll so everyone can respond.
+- Keep illegal specifics out of the chat (the bot sanitizes or deletes them).
+- Check /vouches @user before any deal.
+
+This reminder auto-deletes after an hour. Trade smart, stay respectful. ?o?
+"""
+
+GUIDE_POST_INTERVAL_HOURS = 6
+GUIDE_DELETE_AFTER_SECONDS = 3600
