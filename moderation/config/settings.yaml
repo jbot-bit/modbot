@@ -1,0 +1,21 @@
+settings:
+  velocity:
+    message_count: 3
+    time_window_seconds: 5
+    mute_duration_minutes: 10
+  
+  new_user:
+    account_age_hours: 24
+    block_links: true
+    block_forwards: true
+    block_channels: true
+    block_web_page_preview: true
+
+logging:
+  enabled: true
+  level: INFO
+
+moderation:
+  layer2_enabled: true
+  layer2_model: "llama-3.1-70b-versatile"
+  layer2_timeout_seconds: 30

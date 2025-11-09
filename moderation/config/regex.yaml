@@ -1,0 +1,9 @@
+patterns:
+  - '(?i)\b(?:pay\s*(?:pal|via)|send\s*money|wire\s*(?:transfer|funds))\b'
+  - '(?i)\b(?:click\s*(?:here|link)|visit\s*(?:site|url)|go\s*to)\b'
+  - '(?i)\b(?:you\s*(?:won|qualify)|claim\s*(?:prize|reward)|congratulations)\b'
+  - '(?i)\b(?:urgent|asap|act\s*now|limited\s*time)\b'
+  - '(?i)\b(?:telegram|whatsapp|signal|wickr|threema)\b(?:\s*(?:me|us|contact))?'
+  - '(?i)\b(?:https?://|www\.|t\.me|discord\.gg)\b'
+  - '(?i)\b(?:no\s*scam|100%\s*safe|guaranteed|verified\s*safe)\b'
+  - '(?i)\b(?:upfront|fee|payment\s*required|deposit)\b'

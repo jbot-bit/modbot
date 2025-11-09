@@ -1,0 +1,5 @@
+# Modbot Whitelist (optional - usernames to allow)
+# Add telegram usernames one per line without @
+# Example:
+# admin_user
+# trusted_mod

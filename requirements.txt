@@ -1,0 +1,12 @@
+# Core dependencies
+python-telegram-bot[webhooks,job-queue]==20.7
+python-dotenv==1.0.0
+
+# Webhook server
+flask==3.1.2
+
+# Optional: AI-powered moderation
+httpx==0.25.2
+
+# Pattern matching (optional; falls back to regex if unavailable)
+# pyahocorasick==2.1.0
