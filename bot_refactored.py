@@ -130,18 +130,11 @@ def main():
         logger.error("ADMIN_ID not set in environment variables!")
         return
 
-    # Replit-specific configuration
-    run_mode = os.getenv("RUN_MODE", "polling").lower()
+    # Force polling mode - webhook requires extra dependencies that may not be installed
+    run_mode = "polling"
     port = int(os.getenv("PORT", "5000"))
-    from config import get_base_webhook_url
 
-    webhook_url = get_base_webhook_url()
-    
-    # If running on Replit, prefer webhook if URL is provided
-    if webhook_url and run_mode == "polling":
-        run_mode = "webhook"
-
-    logger.info("Starting Telegram Moderation Bot (%s mode)...", run_mode)
+    logger.info("Starting Telegram Moderation Bot (polling mode)...")
 
     application = Application.builder().token(BOT_TOKEN).job_queue(None).build()
 
@@ -184,29 +177,8 @@ def main():
 
     # Start the bot using the Application API
     try:
-        if run_mode == "polling":
-            logger.info("Starting bot in polling mode...")
-            application.run_polling(allowed_updates=None, stop_signals=None)
-        elif run_mode == "webhook":
-            logger.info(f"Starting bot in webhook mode on port {port}...")
-            # Build final webhook using the same helper in config so tests and
-            # handle_missed_vouches() are aligned. Append BOT_TOKEN only if
-            # not already present in the provided `WEBHOOK_URL`.
-            from config import get_final_webhook_url
-            final_webhook = get_final_webhook_url()
-
-            # url_path should be just the token (the listening endpoint on this server).
-            # Telegram will send POST requests to webhook_url (which includes the full path).
-            # The Application will route them to the url_path internally.
-            application.run_webhook(
-                listen="0.0.0.0",
-                port=port,
-                url_path=f"/{BOT_TOKEN}",
-                webhook_url=final_webhook,
-            )
-        else:
-            logger.error("Invalid RUN_MODE specified. Use 'polling' or 'webhook'.")
-            return
+        logger.info("Starting bot in polling mode...")
+        application.run_polling(allowed_updates=None, stop_signals=None)
     except Exception as e:
         logger.error(f"Bot failed to start: {e}", exc_info=True)
         raise
