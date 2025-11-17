@@ -130,11 +130,13 @@ def main():
         logger.error("ADMIN_ID not set in environment variables!")
         return
 
-    # Force polling mode - webhook requires extra dependencies that may not be installed
-    run_mode = "polling"
+    # Webhook mode configuration
+    from config import get_final_webhook_url
+    run_mode = "webhook"
     port = int(os.getenv("PORT", "5000"))
+    final_webhook = get_final_webhook_url()
 
-    logger.info("Starting Telegram Moderation Bot (polling mode)...")
+    logger.info("Starting Telegram Moderation Bot (webhook mode)...")
 
     application = Application.builder().token(BOT_TOKEN).job_queue(None).build()
 
@@ -177,8 +179,14 @@ def main():
 
     # Start the bot using the Application API
     try:
-        logger.info("Starting bot in polling mode...")
-        application.run_polling(allowed_updates=None, stop_signals=None)
+        logger.info(f"Starting bot in webhook mode on port {port}...")
+        logger.info(f"Webhook URL: {final_webhook}")
+        application.run_webhook(
+            listen="0.0.0.0",
+            port=port,
+            url_path=f"/{BOT_TOKEN}",
+            webhook_url=final_webhook,
+        )
     except Exception as e:
         logger.error(f"Bot failed to start: {e}", exc_info=True)
         raise
