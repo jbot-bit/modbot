@@ -1,12 +1,10 @@
 """
 Configuration for Telegram Moderation Bot
+Replit-optimized: Uses environment variables from Replit secrets
 """
 import os
-from dotenv import load_dotenv
 
-load_dotenv()
-
-# Bot Configuration
+# Bot Configuration - Load from Replit secrets
 BOT_TOKEN = os.getenv("BOT_TOKEN")
 ADMIN_ID = int(os.getenv("ADMIN_ID", "0"))
 
@@ -49,70 +47,55 @@ SCAM_URL_PATTERNS = [
     r"(?:verify|confirm|secure|update|claim).*(?:account|wallet|prize)",
 ]
 
-# Banned Keywords - Multi-category
+# Banned Keywords - Multi-category (REDUCED TO PREVENT FALSE POSITIVES)
 BANNED_KEYWORDS = {
     # --- 1. ILLEGAL GOODS & SUBSTANCES (High-Confidence & Log-Sourced Terms) ---
     "illegal_goods": [
         # **Abbreviations & Direct References (ALWAYS BLOCK)**
-        "kys", "kill yourself", "kms", "kill myself", "you should die",
+        "kys",
         
-        # **Cannabis & Marijuana (From Logs: "buds", "gas", "bluntz")**
-        "cannabis", "marijuana", "weed", "pot", "buds", "budz", "uds", "ganja", "mary jane",
-        "420", "thc", "dank", "dope", "skunk", "reefer", "chronic", "kush", "haze", "indica",
-        "sativa", "edibles", "gummies", "thc vape", "dabs", "wax", "shatter", "hash", "hashish",
-        "bluntz", "buy weed", "weed for sale", "sell weed", "get bud", "thc carts", "buy edibles", "weed drop",
+        # **Cannabis & Marijuana (Transaction-focused only)**
+        "buy weed", "weed for sale", "sell weed", "get bud", "thc carts", "buy edibles", "weed drop",
 
-        # **Cocaine & Crack (From Logs: "rack", "coke", "charlie")**
-        "cocaine", "coke", "crack", "blow", "snow", "white girl", "yayo", "charli", "cola",
-        "8 ball", "eight ball", "fishscale", "flake", "nose candy", "perico", "rack",
+        # **Cocaine & Crack (Transaction-focused only)**
         "buy coke", "coke for sale", "sell cocaine", "coke available", "coke drop", "charlie for sale",
 
-        # **Heroin & Opioids (From Logs: "oxys", "endone", "lean")**
-        "heroin", "smack", "gear", "fentanyl", "fent", "fenty", "oxy", "oxys", "oxycontin", "oxycodone",
-        "percocet", "percs", "endone", "hydrocodone", "vicodin", "opana", "dilaudid", "morphine",
-        "codeine", "sizzurp", "purple drank",
+        # **Heroin & Opioids (Transaction-focused only)**
         "buy heroin", "heroin for sale", "fentanyl for sale", "oxy for sale", "sell oxys",
 
-        # **Methamphetamine & Amphetamines (From Logs: "shard", "shards", "dexies", "vyvanse")**
-        "meth", "methamphetamine", "crystal", "ice", "shard", "shards", "tina", "tweak", "glass",
-        "goey", "phet", "speed", "amphetamine", "dexamphetamine", "dexies", "dexy", "vyvanse",
-        "adderall", "ritalin", "buy meth", "meth for sale", "ice for sale", "shards for sale",
+        # **Methamphetamine & Amphetamines**
+        "buy meth", "meth for sale", "ice for sale", "shards for sale",
 
-        # **MDMA & Ecstasy (From Logs: "pingas", "pingers", "caps")**
-        "mdma", "ecstasy", "molly", "mandy", "xtc", "rolls", "beans", "pingas", "pingers",
-        "caps", "crystals", "buy mdma", "mdma for sale", "molly for sale", "get pingas",
+        # **MDMA & Ecstasy**
+        "buy mdma", "mdma for sale", "get pingas",
 
-        # **Psychedelics (From Logs: "shrooms", "acid", "tabs")**
-        "lsd", "acid", "tabs", "blotter", "lucy", "shrooms", "mushrooms", "mushies", "psilocybin", "magic mushrooms",
-        "dmt", "mescaline", "2cb", "2c-b", "buy lsd", "lsd for sale", "get shrooms",
+        # **Psychedelics**
+        "buy lsd", "lsd for sale", "get shrooms",
 
-        # **Benzodiazepines & Sedatives (From Logs: "xanax", "xans", "bars", "vals", "clonz")**
-        "xanax", "xans", "zans", "bars", "planks", "footballs", "alprazolam", "valium", "vals",
-        "klonopin", "clonazepam", "ativan", "lorazepam", "benzos", "clonz",
+        # **Benzodiazepines & Sedatives**
         "buy xanax", "xanax for sale", "get bars", "valium for sale",
 
-        # **Ketamine (From Logs: "ket", "k")**
-        "ketamine", "ket", "special k", "vitamin k", "horse tranq", "buy ket", "ket for sale",
+        # **Ketamine**
+        "buy ket", "ket for sale",
 
-        # **Weapons & Explosives**
+        # **Weapons & Explosives (Transaction-focused)**
         "gun for sale", "buy a gun", "firearm", "handgun", "rifle", "shotgun", "ammo", "ammunition",
         "explosives", "bomb", "c4", "dynamite", "tnt", "ghost gun", "3d printed gun",
 
-        # **Other Illegals (From Logs: "counterfeit", "fake notes", "cloned cards")**
-        "poppers", "amyl nitrate", "nangs", "nitrous", "whippets", "counterfeit", "fake notes",
-        "cloned cards", "stolen goods", "hot items", "ssn", "credit card numbers", "bank logs",
-        "fake passport", "fake id", "fake documents", "forged documents", "forged passport",
-        "forged id", "document fraud", "identity fraud",
+        # **Other Illegal (Transaction-focused)**
+        "counterfeit money", "fake notes", "cloned cards", "stolen goods", "hot items",
+        "ssn", "credit card numbers", "bank logs", "fake passport", "fake id", "fake documents",
+        "forged documents", "forged passport", "forged id", "document fraud", "identity fraud",
     ],
 
     # --- 2. TRANSACTION & INTENT PHRASES (From Logs: "chasing", "drop", "f2f") ---
     "transaction_phrases": [
-        "for sale", "price list", "pricelist",
+        "price list", "pricelist",
         "wtb", "w2b",
-        "hit me up", "dm me", "pm me", "inbox me",
         "bulk deals", "bulk pricing", "wholesale",
-        "how much for",
         "re-up", "reup",
+        # **Transaction & Intent Phrases (Updated)**
+        "meth for sale", "molly for sale", "crack for sale",
     ],
 
     # --- 3. SPAM, SCAM & MALICIOUS CONTENT ---
@@ -120,18 +103,12 @@ BANNED_KEYWORDS = {
         "get rich quick", "free money", "investment", "guaranteed returns", "ponzi", "pyramid scheme",
         "mlm", "forex", "binary options", "crypto pump", "airdrops", "giveaway", "hacker for hire",
         "ddos", "botnet", "malware", "virus", "phishing", "fake login", "escort", "sex services",
-        "onlyfans", "premium snapchat", "cam girl", "nudes", "leaked", "dox", "doxxing",
         "hitman", "assassin", "hate speech", "nazi", "racist", "kkk", "supremacy",
         "terrorism", "isis", "jihad", "t.me/+", "t.me/joinchat",
     ],
 
     # --- 4. EVASION TACTICS (High-Confidence Patterns Only) ---
     "evasion_tactics": [
-        # REMOVED: Number/symbol obfuscation like c0caine, koke, etc.
-        # These are intentional evasion attempts and won't be in BANNED_KEYWORDS_FLAT
-        # AI layer will catch most sophisticated obfuscation attempts
-        # Only matching exact keywords for high precision
-        
         # Common slang combinations from logs that are unambiguous
         "on the gear", "on the glass", "hot plate", "sesh",
         # Phrases to evade filters
@@ -142,54 +119,50 @@ BANNED_KEYWORDS = {
 # Flatten banned keywords for faster lookup
 BANNED_KEYWORDS_FLAT = [kw for category in BANNED_KEYWORDS.values() for kw in category]
 
-# Suspicious Patterns - Advanced Regex
+# Suspicious Patterns - Advanced Regex (CONTEXT-AWARE TO PREVENT FALSE POSITIVES)
 SUSPICIOUS_PATTERNS = [
-    # "Lean" in drug context only (purple drank, lean available, etc)
-    r"\b(?:purple\s+)?drank\b",  # Purple drank is lean-based
-    r"\b(?:lean|sizzurp)\s+(?:available|for sale|in stock|pm me|message me|hit me up)\b",
+    # Drug transaction context only (requires transaction language)
+    r'\b(?:selling|buying|offering|dealing|supply|distribute)\s+(?:cocaine|heroin|meth|fentanyl|mdma|ecstasy|lsd|weed|cannabis|opioid)\b',
+    r'\b(?:for|buying|selling)\s+(?:cocaine|heroin|meth|fentanyl|drugs|weed)\b',
+    r'\b(?:buy|sell|trade|purchase|selling|offer)\s+(?:drugs|weed|cocaine|heroin|meth|pills|xanax|oxy|fentanyl|mdma|lsd)\b',
+    r'\b(?:cocaine|heroin|meth|fentanyl|xanax|oxy|drugs)\s+(?:available|for sale|in stock|pm me|message me|hit me up)\b',
+    r'\b(?:been|been\s+buying|been\s+selling|was\s+buying)\s+(?:cocaine|heroin|meth|drugs|weed|fentanyl)\b',
+    r'\b\d+(?:\.\d+)?\s*(?:oz|ounce|ounces|gram|kilo|kg|lb)\s+(?:of\s+)?(?:cocaine|heroin|meth|fentanyl|opioid)\b',
+    r'\b(?:half|quarter|eighth)\s*(?:oz|ounce|ounces|pound|lb)\s+(?:of\s+)?(?:cocaine|heroin|meth|opioid)\b',
+    r'\b(?:quarter\s*pound|qp|qps|eighth|half\s*ounce)\s+(?:cocaine|heroin|meth|weed)\b',
     
-    # Illegal drug transactions (comprehensive variations)
-    r"\b(?:have|got|selling|offering)\s+(?:cocaine|heroin|meth|fentanyl|xanax|percocet|oxycodone|oxy|drugs|weed)\b",
-    r"\b(?:for|buying|selling)\s+(?:cocaine|heroin|meth|fentanyl|xanax|drugs|weed)\b",
-    r"\b(?:buy|sell|trade|purchase|selling|offer)\s+(?:drugs|weed|cocaine|heroin|meth|pills|xanax|oxy|fentanyl|mdma|lsd)\b",
-    r"\b(?:cocaine|heroin|meth|fentanyl|xanax|oxy|drugs)\s+(?:available|for sale|in stock|pm me|message me|hit me up)\b",
-    r"\b(?:been|been\s+buying|been\s+selling|was\s+buying)\s+(?:cocaine|heroin|meth|drugs|weed|fentanyl)\b",
-    r"\b\d+(?:\.\d+)?\s*(?:oz|ounce|ounces)\b",
-    r"\b(?:half|quarter)\s*(?:oz|ounce|ounces)\b",
-    r"\b(?:quarter\s*pound|qp|qps)\b",
+    # Counterfeit & illegal documents (transaction context)
+    r'\b(?:counterfeit|fake|forged)\s+(?:money|bills|passport|id|license|documents|ssn)\s+(?:for sale|available|selling)\b',
     
-    # Counterfeit & illegal documents
-    r"\b(?:counterfeit|fake|forged)\s+(?:money|bills|passport|id|license|documents|ssn)\b",
+    # Hacking & fraud (transaction context)
+    r'\b(?:hack|crack|phish|steal|clone)\s+(?:account|password|credit\s*card|bank|wallet|email)\s+(?:for hire|service|available)\b',
+    r'\b(?:carding|dumps|fullz|cvv|bins)\s+(?:for sale|available|selling)\b',
+    r'\bstolen\s+(?:credit\s*cards?|data|accounts?|identit(?:y|ies))\s+(?:for sale|available|selling)\b',
     
-    # Hacking & fraud
-    r"\b(?:hack|crack|phish|steal|clone)\s+(?:account|password|credit\s*card|bank|wallet|email)\b",
-    r"\b(?:carding|dumps|fullz|cvv|bins)\b",
-    r"\bstolen\s+(?:credit\s*cards?|data|accounts?|identit(?:y|ies))\b",
+    # CSAM indicators (zero tolerance)
+    r'\b(?:cp|child\s*porn|kiddie\s*porn|preteen|underage)\s+(?:content|video|link|pic|photo)\b',
+    r'\b(?:young|underage|minor|child|kid)\s+(?:nude|naked|nsfw|porn|xxx)\b',
     
-    # CSAM indicators
-    r"\b(?:cp|child\s*porn|kiddie\s*porn|preteen|underage)\s+(?:content|video|link|pic|photo)\b",
-    r"\b(?:young|underage|minor|child|kid)\s+(?:nude|naked|nsfw|porn|xxx)\b",
+    # Scam patterns (financial context)
+    r'\b(?:guaranteed|100%|instant)\s+(?:profit|returns?|money|income)\s+(?:daily|weekly|monthly)\b',
+    r'\b(?:double|triple|10x|100x)\s+(?:your\s+)?(?:money|investment|crypto|bitcoin)\s+(?:in|daily|weekly)\b',
+    r'(?:send|invest|deposit)\s+\d+.*(?:receive|get|earn)\s+\d+.*(?:back|profit|return)',
     
-    # Scam patterns
-    r"\b(?:guaranteed|100%|instant)\s+(?:profit|returns?|money|income)\b",
-    r"\b(?:double|triple|10x|100x)\s+(?:your\s+)?(?:money|investment|crypto|bitcoin)\b",
-    r"(?:send|invest|deposit)\s+\d+.*(?:receive|get|earn)\s+\d+.*(?:back|profit|return)",
+    # Suspicious crypto (transaction context)
+    r'(?:private\s*key|seed\s*phrase|wallet\s*backup)\s+(?:share|send|dm|message)\s+(?:for|to get)\b',
+    r'\b(?:trust\s*wallet|metamask|exodus)\s+(?:support|verification|security)\s+(?:help|assist)\b',
     
-    # Suspicious crypto
-    r"(?:private\s*key|seed\s*phrase|wallet\s*backup)\s+(?:share|send|dm|message)",
-    r"\b(?:trust\s*wallet|metamask|exodus)\s+(?:support|verification|security)\b",
+    # Referral spam (excessive promotion)
+    r'(?:click|join|use)\s+(?:my\s+)?(?:ref|referral|invite)\s+(?:link|code).*(?:get|earn|receive|bonus)',
+    r't\.me/\w+\?start=\w{20,}',  # Long referral codes
     
-    # Referral spam (excessive)
-    r"(?:click|join|use)\s+(?:my\s+)?(?:ref|referral|invite)\s+(?:link|code).*(?:get|earn|receive|bonus)",
-    r"t\.me/\w+\?start=\w{20,}",  # Long referral codes
+    # Gambling promotions (transaction context)
+    r'\b(?:casino|gambling|betting|poker)\s+(?:guaranteed|100%|sure)\s+(?:win|profit)\s+(?:strategy|system)\b',
+    r'\b(?:bet|gamble|play)\s+(?:and\s+)?(?:win|earn)\s+(?:guaranteed|easy|big)\s+(?:money|cash)\b',
     
-    # Gambling promotions
-    r"\b(?:casino|gambling|betting|poker)\s+(?:guaranteed|100%|sure)\s+(?:win|profit)\b",
-    r"\b(?:bet|gamble|play)\s+(?:and\s+)?(?:win|earn)\s+(?:guaranteed|easy|big)",
-    
-    # Pump & dump
-    r"\b(?:pump|moon|moonshot|100x)\s+(?:incoming|soon|now|alert|signal)\b",
-    r"\b(?:buy\s+now|load\s+up|ape\s+in)\s+(?:before|pump|moon)",
+    # Pump & dump (transaction context)
+    r'\b(?:pump|moon|moonshot|100x)\s+(?:incoming|soon|now|alert|signal)\s+(?:buy|invest|now)\b',
+    r'\b(?:buy\s+now|load\s+up|ape\s+in)\s+(?:before|pump|moon)\s+(?:dump|sell)\b',
 ]
 
 # Telegram invite link patterns (monitor excessive posting)
@@ -241,17 +214,19 @@ _This message will self-destruct in {delay} seconds._
 """
 
 WELCOME_MESSAGE = """
-?Y>???? **Advanced Moderation Bot Active**
+🛡️ **Advanced Moderation Bot Active**
 
-This bot keeps the chat compliant **and** makes vouching simple.
+This bot keeps the chat compliant and makes vouching simple.
 
-**?Ys? Commands you need:**
-??? /vouch @user note - positive vouch
-??? /neg @user note - negative vouch/warning
-??? /ask @user - bot posts a poll asking if the user is vouched
-??? /vouches @user - see stored vouches
+**✨ How it works:**
+• **Automatic Vouch Detection** – Mention someone naturally, and the bot recognizes vouches.
+• **/ask @user** – Post a poll to get group feedback.
+• **/search @user** – Look up stored vouches before trading.
+• **/deletevouch** – Remove your own vouch by replying to it.
 
-Automated filters still remove anything that breaks Telegram's TOS (illegal goods, harassment, spam, scams). Stay safe & keep it clean!
+**⚡ Smart Moderation:**
+✅ Swear words are allowed! Only drugs, scams, and hate speech are banned.
+The bot automatically removes content violating Telegram's ToS. Stay safe!
 """
 
 STATS_MESSAGE = """
@@ -277,32 +252,152 @@ _Protecting your community 24/7_
 """
 
 HELP_MESSAGE = """
-?Y>???? **How to use this group**
+🛡️ **Bot Commands & Features**
 
-**?Y"S Fast vouch workflow**
-??? /vouch @user note - record a positive vouch (bot sanitizes risky wording)
-??? /neg @user note - record a negative vouch or warning
-??? /ask @user - bot posts a quick poll so the group can weigh in
-??? /vouches @user - search stored vouches before trading
+**📝 VOUCHING (Core Feature)**
+The bot automatically detects when you mention someone in connection with vouching. You can:
+• **Give a vouch naturally**: "pos vouch @user great seller", "+rep @user", "@user is vouched"
+• **/neg @user [reason]** – Post a negative vouch for scammers
+• **/vouches @user** – Check someone's vouch history before trading
+• **/deletevouch** – Reply to YOUR vouch to remove it from history
 
-**?s? Other commands**
-??? /start - Bot overview
-??? /help - This message
-??? /mystats - Your strike history
-??? /stats - Moderation dashboard (admin only)
+**� ASKING FOR FEEDBACK**
+• **/ask @user** – Create a poll asking if the group vouches for someone
+_Perfect when you want group consensus before trading!_
 
-Moderation still removes illegal content, scams, spam, harassment and anything against Telegram TOS. Keep explicit details out of the chat and stay safe. ?Y>????
+**📊 YOUR ACCOUNT**
+• **/mystats** – See your strike history and violation record
+• **/start** – Bot overview and welcome message
+
+**⚙️ ADMIN COMMANDS**
+• **/stats** – Moderation dashboard (admin only)
+
+**🛡️ HOW MODERATION WORKS**
+The bot automatically removes content that violates Telegram's ToS:
+❌ Illegal drugs, weapons, scams, fraud, child safety violations, hate speech
+✅ Swearing is allowed! General discussion is fine!
+
+**3-Strike System:**
+Most violations give you a chance to fix it:
+1️⃣ First attempt → Message deleted, 15s warning to rephrase
+2️⃣ Second attempt → Final warning, last chance to fix it
+3️⃣ Third attempt → Bot automatically cleans it and posts a safe version
+
+**Pro Tips:**
+• Speak naturally about traders and vouches – the bot understands context
+• Avoid explicit illegal language (use safer terms)
+• Drug/scam references in vouches get automatically sanitized to protect the group
+• Your vouches are permanently recorded, even if you delete the message
+
+**Questions?** Contact the admin or reply directly to bot messages.
+"""
+
+# Sectioned Help Messages for Inline Keyboard
+HELP_MAIN = """
+🛡️ **Moderation Bot Help**
+
+Choose a section below to learn more:
+"""
+
+HELP_VOUCHING = """
+📝 **VOUCHING (Core Feature)**
+
+**How to Vouch:**
+• Speak naturally: "pos vouch @user great seller"
+• Use affirmations: "@user is vouched"
+• Negative vouches: "/neg @user [reason]"
+
+**Check History:**
+• `/search @user` – See someone's vouch history
+• `/deletevouch` – Reply to YOUR vouch to remove it
+
+**Pro Tip:** The bot automatically detects vouches when you mention @users with positive language!
+"""
+
+HELP_COMMANDS = """
+💬 **COMMANDS & FEATURES**
+
+**Search Vouches:**
+• `/search @user` – Look up someone's vouch history
+
+**Get Group Feedback:**
+• `/ask @user` – Create a poll asking if the group vouches for someone
+
+**Your Account:**
+• `/mystats` – Check your strike history and violations
+• `/start` – Bot overview and welcome message
+
+**Admin Only:**
+• `/stats` – Moderation dashboard and statistics
+"""
+
+HELP_MODERATION = """
+🛡️ **MODERATION SYSTEM**
+
+**What Gets Removed:**
+❌ Illegal drugs, weapons, scams, fraud
+❌ Child safety violations, hate speech
+✅ Swearing is allowed! General discussion is fine!
+
+**3-Strike System:**
+1️⃣ First violation → Delete + 15s warning to rephrase
+2️⃣ Second violation → Delete + final warning
+3️⃣ Third violation → Bot auto-cleans and reposts
+
+**Your vouches are permanently recorded** even if the message gets sanitized!
+"""
+
+HELP_TIPS = """
+💡 **PRO TIPS**
+
+• **Speak naturally** about traders – the bot understands context
+• **Avoid explicit illegal language** (use safer terms)
+• **Drug references in vouches** get automatically cleaned to protect the group
+• **Your vouches stay recorded** even if you delete the message
+• **Questions?** Contact the admin or reply to bot messages
+
+**Keep it clean and everyone stays safe!** 🛡️
 """
 
 GUIDE_MESSAGE = """
-**Quick reminder**
-`/vouch @user note` \u2192 positive vouch
-`/neg @user note` \u2192 warning
-`/ask @user` \u2192 poll
-`/vouches @user` \u2192 history
+**Quick reminder** 👋
+Just talk naturally about users – we'll track it!
+`/ask @user` ➜ poll
+`/vouches @user` ➜ history
+`/deletevouch` ➜ remove YOUR vouch
 
-Keep it clean so the bot won\'t sanitize or delete. *Msg auto-deletes in 30s.*
+Keep it clean. *Msg auto-deletes in 30s.*
 """
 
 GUIDE_POST_INTERVAL_HOURS = 6
 GUIDE_DELETE_AFTER_SECONDS = 30
+
+
+def get_base_webhook_url() -> str:
+    """Return the base webhook URL (without token appended).
+
+    This centralizes the WEBHOOK_URL used by `bot_refactored.py` and
+    `handle_missed_vouches`. If the environment provides `WEBHOOK_URL`,
+    we use it; otherwise fallback to a safe default for Replit.
+    """
+    base = os.getenv("WEBHOOK_URL")
+    if not base:
+        return "https://seqmodbot.replit.app/webhook"
+    # remove trailing slash to make append consistent
+    return base.rstrip("/")
+
+
+def get_final_webhook_url() -> str:
+    """Return full webhook url (with token appended unless already present).
+
+    This central helper ensures `bot_refactored.py` and `handle_missed_vouches`
+    use the same final webhook to avoid duplication or mismatch.
+    """
+    from os import getenv
+    base = get_base_webhook_url()
+    token = getenv("BOT_TOKEN")
+    if token and base.endswith(token):
+        return base
+    if token:
+        return f"{base}/{token}"
+    return base

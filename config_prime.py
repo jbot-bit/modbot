@@ -129,7 +129,18 @@ HARASSMENT_KEYWORDS = [
     'rope', 'neck yourself',
 ]
 
+# ============================================================================
 # MASTER BANNED WORDS LIST (Layer 1 Sieve)
+# ============================================================================
+# IMPORTANT: This list ONLY contains:
+# - Direct drug references (cocaine, heroin, etc.)
+# - Transaction/supply terms (selling, menu, delivery)
+# - Scams/illegal services (fake IDs, hacked accounts)
+# - Harassment/suicide encouragement (kys, kill yourself)
+#
+# SWEAR WORDS ARE NOT BANNED - Users can say "fucking", "shit", "damn", etc.
+# We only ban: drugs, illegal transactions, scams, and hate speech/harassment
+# ============================================================================
 BANNED_WORDS = list(set(
     DRUG_KEYWORDS + 
     TRANSACTION_KEYWORDS + 

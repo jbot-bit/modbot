@@ -16,6 +16,7 @@ PERFORMANCE OPTIMIZATIONS:
 import re
 import logging
 import httpx
+import asyncio
 from typing import Tuple, Optional
 from datetime import datetime, timedelta
 from collections import defaultdict
@@ -33,7 +34,9 @@ from config_prime import (
     ENABLE_AI_MODERATION,
     MAX_MESSAGES_PER_WINDOW,
     MESSAGE_WINDOW_SECONDS,
+    ENABLE_ADMIN_RATE_LIMIT,
 )
+from modbot.handlers.commands import dynamic_banned_words  # Import dynamic keywords
 
 logger = logging.getLogger(__name__)
 
@@ -136,18 +139,12 @@ def sanitize_vouch(text: str) -> str:
 def layer1_keyword_check(text: str) -> Tuple[bool, Optional[str]]:
     """
     Layer 1: Instant keyword deletion
-    
-    OPTIMIZED:
-    - Pre-compiled patterns (avoid recompilation)
-    - Early exit on first match (stop searching after violation found)
-    - No redundant case conversion
-    
-    Checks message against hardcoded BANNED_WORDS list and regex patterns.
-    Designed for SPEED - catches blatant violations in <5ms.
-    
+
+    Checks message against hardcoded BANNED_WORDS list, dynamic_banned_words, and regex patterns.
+
     Args:
         text: Message text to check
-        
+
     Returns:
         (is_violation, matched_keyword)
         - is_violation: True if keyword/pattern found
@@ -155,19 +152,19 @@ def layer1_keyword_check(text: str) -> Tuple[bool, Optional[str]]:
     """
     if not text:
         return False, None
-    
+
     text_lower = text.lower()
-    
-    # Check banned keywords (fast substring match)
-    for banned_word, pattern in _KEYWORD_PATTERNS.items():
-        if pattern.search(text):  # Use pre-compiled pattern
+
+    # Check banned keywords (hardcoded and dynamic)
+    for banned_word in BANNED_WORDS.union(dynamic_banned_words):
+        if banned_word in text_lower:
             return True, banned_word
-    
-    # Check banned patterns (regex) - only if keywords passed
+
+    # Check banned patterns (regex)
     for pattern in _COMPILED_PATTERNS:
         if pattern.search(text):
             return True, f"pattern:{pattern.pattern[:30]}"
-    
+
     # Passed Layer 1
     return False, None
 
@@ -178,15 +175,14 @@ def layer1_keyword_check(text: str) -> Tuple[bool, Optional[str]]:
 
 async def layer2_ai_check(text: str) -> Tuple[bool, Optional[str]]:
     """
-    Layer 2: AI semantic analysis
-    
+    Layer 2: AI semantic analysis with retry logic.
+
     Sends message to Groq API to analyze INTENT.
-    Catches coded language and context that keywords miss.
-    Only runs if message passed Layer 1.
-    
+    Retries up to 3 times in case of transient errors.
+
     Args:
         text: Message text to analyze
-        
+
     Returns:
         (is_violation, ai_reason)
         - is_violation: True if AI flagged as VIOLATION
@@ -194,78 +190,100 @@ async def layer2_ai_check(text: str) -> Tuple[bool, Optional[str]]:
     """
     if not ENABLE_AI_MODERATION or not GROQ_API_KEY:
         return False, None
-    
-    try:
-        async with httpx.AsyncClient(timeout=5.0) as client:
-            response = await client.post(
-                "https://api.groq.com/openai/v1/chat/completions",
-                headers={
-                    "Authorization": f"Bearer {GROQ_API_KEY}",
-                    "Content-Type": "application/json"
-                },
-                json={
-                    "model": AI_MODEL,
-                    "messages": [
-                        {
-                            "role": "user",
-                            "content": AI_ANALYSIS_PROMPT + text
-                        }
-                    ],
-                    "temperature": AI_TEMPERATURE,
-                    "max_tokens": AI_MAX_TOKENS
-                }
-            )
-            
-            if response.status_code != 200:
+
+    retries = 3
+    for attempt in range(retries):
+        try:
+            async with httpx.AsyncClient(timeout=5.0) as client:
+                response = await client.post(
+                    "https://api.groq.com/openai/v1/chat/completions",
+                    headers={
+                        "Authorization": f"Bearer {GROQ_API_KEY}",
+                        "Content-Type": "application/json"
+                    },
+                    json={
+                        "model": AI_MODEL,
+                        "messages": [
+                            {
+                                "role": "user",
+                                "content": AI_ANALYSIS_PROMPT + text
+                            }
+                        ],
+                        "temperature": AI_TEMPERATURE,
+                        "max_tokens": AI_MAX_TOKENS
+                    }
+                )
+
+                if response.status_code == 200:
+                    result = response.json()
+                    ai_response = result["choices"][0]["message"]["content"].strip().upper()
+
+                    if "VIOLATION" in ai_response:
+                        logger.warning(f"[LAYER 2] AI flagged violation: {text[:50]}...")
+                        return True, "AI detected intent violation"
+
+                    return False, None
+
                 logger.error(f"[LAYER 2] Groq API error: {response.status_code}")
-                return False, None
-            
-            result = response.json()
-            ai_response = result["choices"][0]["message"]["content"].strip().upper()
-            
-            if "VIOLATION" in ai_response:
-                logger.warning(f"[LAYER 2] AI flagged violation: {text[:50]}...")
-                return True, "AI detected intent violation"
-            
-            # Passed Layer 2
-            return False, None
-            
-    except Exception as e:
-        logger.error(f"[LAYER 2] AI check error: {e}")
-        return False, None
+
+        except Exception as e:
+            logger.error(f"[LAYER 2] Attempt {attempt + 1} failed: {e}")
+
+        await asyncio.sleep(2 ** attempt)  # Exponential backoff
+
+    logger.error("[LAYER 2] All retry attempts failed. Falling back.")
+    return layer2_fallback_check(text)
+
+def layer2_fallback_check(text: str) -> Tuple[bool, Optional[str]]:
+    """
+    Fallback mechanism for Layer 2 AI moderation.
+    Performs stricter keyword checks if the AI API is unavailable.
+
+    Args:
+        text: Message text to analyze
+
+    Returns:
+        (is_violation, reason)
+        - is_violation: True if stricter checks detect a violation
+        - reason: Explanation of the violation
+    """
+    for pattern in _COMPILED_PATTERNS:
+        if pattern.search(text):
+            return True, "Fallback detected violation: stricter keyword checks"
+
+    return False, None
 
 
 # ============================================================================
 # LAYER 3: THE WATCHER (Behavioral Deletion)
 # ============================================================================
 
-def layer3_velocity_check(user_id: int, text: str) -> bool:
+def layer3_velocity_check(user_id: int, text: str, is_admin: bool = False) -> bool:
     """
     Layer 3a: Velocity control (rate limiting)
-    
-    OPTIMIZED:
-    - Tracks timestamps only (not full message text)
-    - Lazy cleanup (every 100 messages, not every message)
-    - Avoids list comprehension on every check
-    
-    Checks if user is posting too fast (more than MAX_MESSAGES_PER_WINDOW in MESSAGE_WINDOW_SECONDS).
-    Stops spam raids and flooding.
-    
+
+    Adds optional rate limiting for admins if ENABLE_ADMIN_RATE_LIMIT is True.
+
     Args:
         user_id: Telegram user ID
         text: Message text (for logging)
-        
+        is_admin: Whether the user is an admin
+
     Returns:
         True if user exceeded velocity limit (should be muted)
         False if velocity is acceptable
     """
     global _cleanup_counter
-    
+
+    # Skip rate limiting for admins if disabled
+    if is_admin and not ENABLE_ADMIN_RATE_LIMIT:
+        return False
+
     now = datetime.now()
     cutoff_time = now - timedelta(seconds=MESSAGE_WINDOW_SECONDS)
-    
+
     user_messages = velocity_tracker[user_id]
-    
+
     # Lazy cleanup: remove timestamps older than window (every N messages)
     _cleanup_counter += 1
     if _cleanup_counter >= _CLEANUP_INTERVAL:
@@ -276,13 +294,13 @@ def layer3_velocity_check(user_id: int, text: str) -> bool:
                 ts for ts in velocity_tracker[uid]
                 if ts > cutoff_time
             ]
-    
+
     # Add current message timestamp
     user_messages.append(now)
-    
+
     # Check if exceeded limit
     message_count = len(user_messages)
-    
+
     return message_count > MAX_MESSAGES_PER_WINDOW
 
 
@@ -342,59 +360,46 @@ def layer3_new_user_check(user_id: int, message) -> Tuple[bool, Optional[str]]:
 async def check_violation(text: str, user_id: int, message) -> Tuple[bool, str, str]:
     """
     THE ToS VIOLATION FUNNEL - Three-layer protection
-    
-    Every non-vouch message goes through this funnel.
-    If it fails at ANY layer, it is deleted and process stops.
-    
-    Args:
-        text: Message text
-        user_id: Telegram user ID
-        message: Full Telegram message object
-        
+
     Returns:
-        (should_delete, reason, layer)
-        - should_delete: True if message violates rules
-        - reason: Explanation of violation
-        - layer: Which layer caught it (for stats)
+        Tuple[bool, str, str]:
+            - Violation status (True/False)
+            - Reason for violation
+            - Layer that flagged the violation
     """
-    # LAYER 1: Keyword Sieve (instant, <10ms)
+    # LAYER 1: Keyword Sieve
     is_violation, keyword = layer1_keyword_check(text)
     if is_violation:
         return True, f"Banned keyword: {keyword}", "Layer1"
-    
+
     # LAYER 2: AI Semantic Analysis (2-3s, high accuracy)
     is_violation, ai_reason = await layer2_ai_check(text)
     if is_violation:
         return True, ai_reason or "AI detected violation", "Layer2"
-    
+
     # LAYER 3a: Velocity Control
     if layer3_velocity_check(user_id, text):
         return True, "Message flooding (velocity control)", "Layer3-Velocity"
-    
+
     # LAYER 3b: New User Restrictions
     is_violation, reason = layer3_new_user_check(user_id, message)
     if is_violation:
         return True, reason, "Layer3-NewUser"
-    
+
     # Message is safe - passed all layers
     return False, "", ""
 
 
-# ============================================================================
+# ==========================================================================
 # HELPER FUNCTIONS
-# ============================================================================
+# ==========================================================================
 
 def track_user_join(user_id: int):
-    """Record when a user joined the group"""
+    """Record when a user joined the group."""
     if user_id not in user_join_times:
         user_join_times[user_id] = datetime.now()
         logger.info(f"Tracking new user: {user_id}")
 
-
 def get_user_message_count(user_id: int) -> int:
-    """
-    OPTIMIZED: Get how many messages user sent in the current window
-    
-    Returns count directly from tracker length (already filtered by cleanup)
-    """
+    """Get the number of messages a user sent in the current window."""
     return len(velocity_tracker.get(user_id, []))

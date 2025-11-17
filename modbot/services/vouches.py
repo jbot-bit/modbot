@@ -1,15 +1,20 @@
 from __future__ import annotations
 
 import asyncio
+import logging
 from typing import Optional, Tuple, List
 from telegram import Message, Chat, User
+from telegram import MessageEntity
+from datetime import datetime
+
+logger = logging.getLogger(__name__)
 
 from moderation import (
-    sanitize_text,
     extract_vouch_info,
     format_canonical_vouch,
     rewrite_vouch_with_ai,
     extract_mentions,
+    sanitize_text,
 )
 from modbot.engine.orchestrator import analyze_message
 from modbot.services.metrics import stats
@@ -23,25 +28,46 @@ from vouch_db import (
     get_prior_vouchers_for_target,
 )
 
+from asyncio import Lock
+
+# Create a lock for database operations
+_db_lock = Lock()
+
+async def store_vouch_with_lock(*args, **kwargs):
+    """Wrapper to ensure vouch storage is thread-safe."""
+    async with _db_lock:
+        store_vouch(*args, **kwargs)
+
 
 async def handle_clean_vouch(message: Message, from_username: Optional[str]) -> None:
+    """
+    Handle a vouch that passed moderation checks.
+    Posts the canonical vouch and stores it in the database.
+    """
     vinfo = extract_vouch_info(message.text or "", from_username=from_username)
     if not vinfo:
+        logger.warning(f"Could not extract vouch info from: {message.text}")
         return
+    
     targets = _collect_target_usernames(message.text or "", from_username)
     if not targets:
+        logger.warning(f"No valid targets found in vouch: {message.text}")
         return
+    
+    logger.info(f"VOUCH HANDLER: Extracted {len(targets)} target(s): {targets}")
 
     polarity = vinfo.get("polarity", "pos")
     canonical_entries: List[str] = []
     target_entries: List[Tuple[str, str]] = []
 
     for target in targets:
+        # Skip if user already vouched for this target in the last 24h
         if check_vouch_duplicate_24h(
             from_user_id=message.from_user.id,
             to_username=target,
             polarity=polarity,
         ):
+            logger.info(f"Duplicate vouch detected for user {message.from_user.id} -> @{target}")
             continue
 
         vinfo_target = dict(vinfo)
@@ -56,141 +82,73 @@ async def handle_clean_vouch(message: Message, from_username: Optional[str]) -> 
         target_entries.append((target, canonical_text))
 
     if not target_entries:
-        try:
-            await message.delete()
-        except Exception:
-            pass
+        # Nothing to store (all were duplicates within 24h). Leave the
+        # original message posted so users can keep their own vouches.
         await _send_temp_ack(
             message.chat,
             "[INFO] Already vouched within the last 24h.",
         )
         return
 
-    try:
-        await message.delete()
-    except Exception:
-        pass
-
-    sent = await message.chat.send_message("\n\n".join(canonical_entries))
+    # Leave the original message posted. Store each vouch in the DB using
+    # the original message id so it can be referenced/searchable later.
+    # Capture user ids from any text_mention entities present on the message
+    entity_user_map = _collect_target_user_ids_from_entities(message)
 
     for target, canonical_text in target_entries:
-        store_vouch(
+        logger.info(f"Storing vouch for @{target} from {from_username or message.from_user.username}")
+        logger.debug(f"Original text: {message.text}")
+        await store_vouch_with_lock(
             from_user_id=message.from_user.id,
             from_username=(from_username or ""),
             from_display_name=message.from_user.first_name,
-            to_user_id=None,
+            to_user_id=entity_user_map.get(target),
             to_username=target,
             to_display_name=None,
             polarity=polarity,
             original_text=message.text or "",
             canonical_text=canonical_text,
             chat_id=message.chat_id,
-            message_id=sent.message_id,
+            message_id=message.message_id,
             is_sanitized=False,
         )
+        logger.debug("Vouch stored for target %s, message=%s", target, message.message_id)
 
     await _send_temp_ack(
         message.chat,
-        "[OK] Thank you. Vouch logged and printed.",
-        reply_to=sent.message_id,
+        "[OK] Thank you. Vouch logged.",
+        reply_to=message.message_id,
     )
 
 
+# Ensure retry logic is enforced before reposting
 async def handle_dirty_vouch(message: Message, reason: str) -> None:
+    """
+    Handle vouches that contain ToS violations by deleting the message and notifying the user.
+
+    Args:
+        message: The vouch message with ToS violations.
+        reason: The violation reason detected.
+    """
     original_text = message.text or ""
-    username = f"@{message.from_user.username}" if message.from_user.username else message.from_user.first_name
-    vinfo = extract_vouch_info(original_text, from_username=message.from_user.username)
-    polarity = (vinfo or {}).get("polarity", "pos")
 
-    if not _should_sanitize_reason(reason):
-        await handle_clean_vouch(message, message.from_user.username)
-        return
-
-    rewritten = await rewrite_vouch_with_ai(original_text)
-    if rewritten:
-        vouch_content = rewritten
-    else:
-        vouch_content = sanitize_text(original_text)
-
-    targets = _collect_target_usernames(original_text, message.from_user.username)
-    if not targets:
-        targets = [message.from_user.username or ""]
-
-    valid_targets: List[str] = []
-    for target in targets:
-        if check_vouch_duplicate_24h(
-            from_user_id=message.from_user.id,
-            to_username=target,
-            polarity=polarity,
-        ):
-            continue
-        valid_targets.append(target)
-
-    if not valid_targets:
-        try:
-            await message.delete()
-        except Exception:
-            pass
-        await _send_temp_ack(
-            message.chat,
-            "[INFO] Already vouched within the last 24h.",
-        )
-        return
-
-    note_excerpt = vouch_content.replace("\n", " ").strip()
-    if len(note_excerpt) > 160:
-        note_excerpt = note_excerpt[:157] + "..."
-
-    canonical_entries: List[str] = []
-    target_entry_pairs: List[Tuple[str, str]] = []
-    for target in valid_targets:
-        entry_info = {
-            "from_username": username,
-            "to_username": f"@{target}",
-            "polarity": polarity,
-            "excerpt": note_excerpt,
-        }
-        if polarity == "neg":
-            watchers = _format_prior_watchers(target)
-            if watchers:
-                entry_info["watchers"] = watchers
-        entry = format_canonical_vouch(entry_info)
-        canonical_entries.append(entry)
-        target_entry_pairs.append((target, entry))
-
-    vouch_message = "\n\n".join(canonical_entries)
-
+    # Delete the original message
     try:
         await message.delete()
-    except Exception:
-        pass
-    try:
-        sent = await message.chat.send_message(vouch_message)
-        update_vouch_message_id(message.chat_id, sent.message_id)
-    except Exception:
+    except Exception as e:
+        logger.debug(f"Failed to delete message: {e}")
         return
 
-    for target, canonical_text in target_entry_pairs:
-        store_vouch(
-            from_user_id=message.from_user.id,
-            from_username=message.from_user.username,
-            from_display_name=message.from_user.first_name,
-            to_user_id=None,
-            to_username=target,
-            to_display_name=None,
-            polarity=polarity,
-            original_text=original_text,
-            canonical_text=canonical_text,
-            chat_id=message.chat_id,
-            message_id=sent.message_id,
-            is_sanitized=True,
-        )
-    stats["vouches_sanitized"] += 1
-    await _send_temp_ack(
-        message.chat,
-        "[OK] Thank you. Vouch logged and ToS compliant.",
-        reply_to=sent.message_id,
+    # Notify the user with the violation reason and admin contact
+    warning_msg = (
+        f"⚠️ **Vouch Rejected - {reason}**\n\n"
+        "Your vouch was deleted because it violated our community guidelines.\n\n"
+        "💡 **Tip:** Please review the guidelines and rephrase your vouch.\n\n"
+        "If you have any questions, contact @admin."
     )
+
+    await _send_temp_ack(message.chat, warning_msg, delay=15)
+    logger.info(f"Vouch deleted for user {message.from_user.id} due to: {reason}")
 
 
 async def submit_vouch_via_command(
@@ -223,7 +181,7 @@ async def submit_vouch_via_command(
     vinfo["polarity"] = polarity
 
     is_sanitized = False
-    needs_sanitize = decision.should_remove and _should_sanitize_reason(decision_reason)
+    needs_sanitize = decision.should_remove
     note_excerpt = args_text
 
     if needs_sanitize:
@@ -270,7 +228,7 @@ async def submit_vouch_via_command(
         return False, "Failed to post the vouch. Try again in a moment."
 
     for target, canonical_entry in stored_targets:
-        store_vouch(
+        await store_vouch_with_lock(
             from_user_id=user.id,
             from_username=user.username or "",
             from_display_name=user.first_name,
@@ -305,12 +263,38 @@ def _collect_target_usernames(text: str, from_username: Optional[str]) -> List[s
     from_norm = (from_username or "").lstrip("@").lower()
     results: List[str] = []
     for mention in mentions:
-        norm = mention.lower()
+        norm = mention.lower().lstrip("@")
         if norm == from_norm or norm in seen:
             continue
         seen.add(norm)
-        results.append(mention)
+        # store normalized, lower-case usernames (no @)
+        results.append(norm)
     return results
+
+
+def _collect_target_user_ids_from_entities(message: Message) -> dict:
+    """Return a mapping username_lower -> user.id for text_mention entities on the message.
+
+    This helps when a vouch mentions someone via an actual Telegram user mention
+    (MessageEntity type "text_mention"), because that includes the target user id.
+    """
+    mapping = {}
+    if not message or not getattr(message, "entities", None):
+        return mapping
+
+    for ent in message.entities:
+        try:
+            if ent.type == MessageEntity.TEXT_MENTION and getattr(ent, "user", None):
+                # Extract the exact mention text from the message and normalize
+                text = (message.text or "")
+                mention_text = text[ent.offset : ent.offset + ent.length]
+                if mention_text:
+                    norm = mention_text.lstrip("@").lower()
+                    mapping[norm] = ent.user.id
+        except Exception:
+            continue
+
+    return mapping
 
 
 async def _send_temp_ack(chat: Chat, text: str, reply_to: Optional[int] = None, delay: int = 10) -> None:
@@ -354,20 +338,3 @@ def _format_prior_watchers(target_username: str) -> List[str]:
         if len(formatted) >= 5:
             break
     return formatted
-
-
-def _should_sanitize_reason(reason: str) -> bool:
-    if not reason:
-        return False
-    reason_lower = reason.lower()
-    return any(keyword in reason_lower for keyword in _SANITIZE_REASON_KEYWORDS)
-
-_SANITIZE_REASON_KEYWORDS = [
-    "prohibited",
-    "illegal",
-    "scam",
-    "suspicious",
-    "toxicity",
-    "critical",
-    "ai ",
-]
