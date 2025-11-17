@@ -399,5 +399,12 @@ def get_final_webhook_url() -> str:
     if token and base.endswith(token):
         return base
     if token:
-        return f"{base}/{token}"
+        # If base already ends with /webhook, append token directly after it
+        # Otherwise append /token
+        if base.endswith("/webhook"):
+            return f"{base}/{token}"
+        elif "/" not in base.split("://")[1]:  # No path after domain
+            return f"{base}/webhook/{token}"
+        else:
+            return f"{base}/{token}"
     return base
