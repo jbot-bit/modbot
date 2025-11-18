@@ -36,7 +36,13 @@ _db_lock = Lock()
 async def store_vouch_with_lock(*args, **kwargs):
     """Wrapper to ensure vouch storage is thread-safe."""
     async with _db_lock:
-        store_vouch(*args, **kwargs)
+        try:
+            result = store_vouch(*args, **kwargs)
+            logger.info(f"Vouch stored successfully: {result}")
+            return result
+        except Exception as e:
+            logger.error(f"Error storing vouch in store_vouch_with_lock: {e}", exc_info=True)
+            raise
 
 
 async def handle_clean_vouch(message: Message, from_username: Optional[str]) -> None:
@@ -44,81 +50,88 @@ async def handle_clean_vouch(message: Message, from_username: Optional[str]) -> 
     Handle a vouch that passed moderation checks.
     Posts the canonical vouch and stores it in the database.
     """
-    vinfo = extract_vouch_info(message.text or "", from_username=from_username)
-    if not vinfo:
-        logger.warning(f"Could not extract vouch info from: {message.text}")
-        return
-    
-    targets = _collect_target_usernames(message.text or "", from_username)
-    if not targets:
-        logger.warning(f"No valid targets found in vouch: {message.text}")
-        return
-    
-    logger.info(f"VOUCH HANDLER: Extracted {len(targets)} target(s): {targets}")
+    try:
+        vinfo = extract_vouch_info(message.text or "", from_username=from_username)
+        if not vinfo:
+            logger.warning(f"Could not extract vouch info from: {message.text}")
+            return
+        
+        targets = _collect_target_usernames(message.text or "", from_username)
+        if not targets:
+            logger.warning(f"No valid targets found in vouch: {message.text}")
+            return
+        
+        logger.info(f"VOUCH HANDLER: Extracted {len(targets)} target(s): {targets}")
 
-    polarity = vinfo.get("polarity", "pos")
-    canonical_entries: List[str] = []
-    target_entries: List[Tuple[str, str]] = []
+        polarity = vinfo.get("polarity", "pos")
+        canonical_entries: List[str] = []
+        target_entries: List[Tuple[str, str]] = []
 
-    for target in targets:
-        # Skip if user already vouched for this target in the last 24h
-        if check_vouch_duplicate_24h(
-            from_user_id=message.from_user.id,
-            to_username=target,
-            polarity=polarity,
-        ):
-            logger.info(f"Duplicate vouch detected for user {message.from_user.id} -> @{target}")
-            continue
+        for target in targets:
+            # Skip if user already vouched for this target in the last 24h
+            if check_vouch_duplicate_24h(
+                from_user_id=message.from_user.id,
+                to_username=target,
+                polarity=polarity,
+            ):
+                logger.info(f"Duplicate vouch detected for user {message.from_user.id} -> @{target}")
+                continue
 
-        vinfo_target = dict(vinfo)
-        vinfo_target["to_username"] = f"@{target}"
-        if polarity == "neg":
-            watchers = _format_prior_watchers(target)
-            if watchers:
-                vinfo_target["watchers"] = watchers
-        canonical_text = format_canonical_vouch(vinfo_target)
+            vinfo_target = dict(vinfo)
+            vinfo_target["to_username"] = f"@{target}"
+            if polarity == "neg":
+                watchers = _format_prior_watchers(target)
+                if watchers:
+                    vinfo_target["watchers"] = watchers
+            canonical_text = format_canonical_vouch(vinfo_target)
 
-        canonical_entries.append(canonical_text)
-        target_entries.append((target, canonical_text))
+            canonical_entries.append(canonical_text)
+            target_entries.append((target, canonical_text))
 
-    if not target_entries:
-        # Nothing to store (all were duplicates within 24h). Leave the
-        # original message posted so users can keep their own vouches.
+        if not target_entries:
+            # Nothing to store (all were duplicates within 24h). Leave the
+            # original message posted so users can keep their own vouches.
+            logger.info(f"No new targets to store (all duplicates)")
+            await _send_temp_ack(
+                message.chat,
+                "[INFO] Already vouched within the last 24h.",
+            )
+            return
+
+        # Leave the original message posted. Store each vouch in the DB using
+        # the original message id so it can be referenced/searchable later.
+        # Capture user ids from any text_mention entities present on the message
+        entity_user_map = _collect_target_user_ids_from_entities(message)
+
+        for target, canonical_text in target_entries:
+            logger.info(f"Storing vouch for @{target} from {from_username or message.from_user.username}")
+            logger.debug(f"Original text: {message.text}")
+            try:
+                await store_vouch_with_lock(
+                    from_user_id=message.from_user.id,
+                    from_username=(from_username or ""),
+                    from_display_name=message.from_user.first_name,
+                    to_user_id=entity_user_map.get(target),
+                    to_username=target,
+                    to_display_name=None,
+                    polarity=polarity,
+                    original_text=message.text or "",
+                    canonical_text=canonical_text,
+                    chat_id=message.chat_id,
+                    message_id=message.message_id,
+                    is_sanitized=False,
+                )
+                logger.debug("Vouch stored for target %s, message=%s", target, message.message_id)
+            except Exception as e:
+                logger.error(f"Failed to store vouch for @{target}: {e}", exc_info=True)
+
         await _send_temp_ack(
             message.chat,
-            "[INFO] Already vouched within the last 24h.",
+            "[OK] Thank you. Vouch logged.",
+            reply_to=message.message_id,
         )
-        return
-
-    # Leave the original message posted. Store each vouch in the DB using
-    # the original message id so it can be referenced/searchable later.
-    # Capture user ids from any text_mention entities present on the message
-    entity_user_map = _collect_target_user_ids_from_entities(message)
-
-    for target, canonical_text in target_entries:
-        logger.info(f"Storing vouch for @{target} from {from_username or message.from_user.username}")
-        logger.debug(f"Original text: {message.text}")
-        await store_vouch_with_lock(
-            from_user_id=message.from_user.id,
-            from_username=(from_username or ""),
-            from_display_name=message.from_user.first_name,
-            to_user_id=entity_user_map.get(target),
-            to_username=target,
-            to_display_name=None,
-            polarity=polarity,
-            original_text=message.text or "",
-            canonical_text=canonical_text,
-            chat_id=message.chat_id,
-            message_id=message.message_id,
-            is_sanitized=False,
-        )
-        logger.debug("Vouch stored for target %s, message=%s", target, message.message_id)
-
-    await _send_temp_ack(
-        message.chat,
-        "[OK] Thank you. Vouch logged.",
-        reply_to=message.message_id,
-    )
+    except Exception as e:
+        logger.error(f"Error in handle_clean_vouch: {e}", exc_info=True)
 
 
 # Ensure retry logic is enforced before reposting

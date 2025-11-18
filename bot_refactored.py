@@ -16,8 +16,6 @@ from telegram.ext import (
 )
 
 from config import (
-    BOT_TOKEN,
-    ADMIN_ID,
     GUIDE_MESSAGE,
     GUIDE_POST_INTERVAL_HOURS,
     GUIDE_DELETE_AFTER_SECONDS,
@@ -39,9 +37,13 @@ from modbot.handlers.commands import (
     remove_keyword,
     list_keywords,
     deletevouch_command,
+    checkvouch_command,
+    addvouch_command,
     debug_vouches,
     quick_reminder,
     handle_missed_vouches,
+    debug_webhook,
+    reset_webhook,
 )
 from modbot.handlers.messages import handle_text_message
 from vouch_db import cleanup_old_vouch_retry_attempts
@@ -67,9 +69,15 @@ GUIDE_KEYBOARD = InlineKeyboardMarkup([
 async def error_handler(update: Update, context: ContextTypes.DEFAULT_TYPE):
     """Log and handle errors gracefully without crashing the bot."""
     try:
-        logger.error(f"Update {update} caused error {context.error}")
+        logger.error(f"=== ERROR IN BOT ===")
+        logger.error(f"Update: {update}")
+        logger.error(f"Error: {context.error}")
+        logger.error(f"Error type: {type(context.error)}")
+        import traceback
+        if context.error:
+            logger.error(f"Error traceback: {''.join(traceback.format_exception(type(context.error), context.error, context.error.__traceback__))}")
     except Exception as e:
-        logger.error(f"Error handler failed: {e}")
+        logger.error(f"Error handler failed: {e}", exc_info=True)
 
 
 async def send_usage_tip(context: ContextTypes.DEFAULT_TYPE):
@@ -123,22 +131,39 @@ async def guide_callback(update: Update, context: ContextTypes.DEFAULT_TYPE):
 
 
 def main():
+    # Fetch environment variables dynamically
+    BOT_TOKEN = os.getenv("BOT_TOKEN")
+    ADMIN_ID = int(os.getenv("ADMIN_ID", "0"))  # Default to 0 if not set
+
+    # Ensure required environment variables are set
     if not BOT_TOKEN:
         logger.error("BOT_TOKEN not set in environment variables!")
-        return
-    if not ADMIN_ID or ADMIN_ID == 0:
+        exit(1)
+    if not ADMIN_ID:
         logger.error("ADMIN_ID not set in environment variables!")
-        return
+        exit(1)
 
     # Webhook mode configuration
-    from config import get_final_webhook_url
     run_mode = "webhook"
     port = int(os.getenv("PORT", "5000"))
-    final_webhook = get_final_webhook_url()
+
+    # Use WEBHOOK_URL from secrets
+    WEBHOOK_URL = os.getenv("WEBHOOK_URL")
+    if not WEBHOOK_URL:
+        logger.error("WEBHOOK_URL not set in environment variables!")
+        exit(1)
 
     logger.info("Starting Telegram Moderation Bot (webhook mode)...")
+    logger.info(f"BOT_TOKEN prefix: {BOT_TOKEN[:30]}...")
+    logger.info(f"WEBHOOK_URL: {WEBHOOK_URL}")
 
     application = Application.builder().token(BOT_TOKEN).job_queue(None).build()
+
+    logger.info("=== BOT APPLICATION INITIALIZED ===")
+    logger.info(f"Bot token: {BOT_TOKEN[:20]}...")
+    logger.info(f"Admin ID: {ADMIN_ID}")
+    logger.info(f"Webhook URL: {WEBHOOK_URL}")
+    logger.info(f"Port: {port}")
 
     # Note: Job queue disabled on Python 3.13 due to weakref.__slots__ incompatibility
     # See: https://github.com/python-telegram-bot/python-telegram-bot/issues/3752
@@ -156,12 +181,16 @@ def main():
     application.add_handler(CommandHandler("myvouches", myvouches_command))
     application.add_handler(CommandHandler("sync_vouches", sync_vouches_command))
     application.add_handler(CommandHandler("deletevouch", deletevouch_command))
+    application.add_handler(CommandHandler("checkvouch", checkvouch_command))
+    application.add_handler(CommandHandler("addvouch", addvouch_command))
     application.add_handler(CommandHandler("reminder", quick_reminder))
     application.add_handler(CommandHandler("add_keyword", add_keyword))
     application.add_handler(CommandHandler("remove_keyword", remove_keyword))
     application.add_handler(CommandHandler("list_keywords", list_keywords))
     # Debug command for admins to inspect recent vouches
     application.add_handler(CommandHandler("debug_vouches", debug_vouches))
+    application.add_handler(CommandHandler("debug_webhook", debug_webhook))
+    application.add_handler(CommandHandler("reset_webhook", reset_webhook))
 
     # Messages
     application.add_handler(MessageHandler(filters.TEXT & ~filters.COMMAND, handle_text_message))
@@ -171,24 +200,57 @@ def main():
     # Errors
     application.add_error_handler(error_handler)
 
+    logger.info("=== ALL HANDLERS REGISTERED ===")
+    logger.info(f"Handlers object type: {type(application.handlers)}")
+    logger.info(f"Handlers content: {application.handlers}")
+    handler_count = sum(len(h) for h in application.handlers.values()) if isinstance(application.handlers, dict) else len(application.handlers)
+    logger.info(f"Total handlers: {handler_count}")
+
     # Scheduled reminders disabled on Python 3.13 due to weakref issues
     # job_queue = application.job_queue
     # if job_queue:
     #     job_queue.run_repeating(...)
     logger.info("Scheduled jobs disabled on Python 3.13 (upgrade to Python 3.12 or lower for full features)")
 
-    # Start the bot using the Application API
+    # Validate and log the webhook URL
+    from config import validate_webhook_url
     try:
-        logger.info(f"Starting bot in webhook mode on port {port}...")
-        logger.info(f"Webhook URL: {final_webhook}")
+        final_webhook_url = validate_webhook_url()
+        logger.info(f"Using webhook URL: {final_webhook_url}")
+    except ValueError as e:
+        logger.error(f"Invalid webhook URL: {e}")
+        exit(1)
+
+    logger.info("=== VALIDATED WEBHOOK URL SUCCESSFULLY ===")
+
+    # Start the bot using the Application API
+    logger.info(f"Starting bot in webhook mode on port {port}...")
+    logger.info(f"Webhook URL: {WEBHOOK_URL}")
+    logger.info("Registering webhook and starting listener...")
+    logger.info("=== WEBHOOK LISTENER STARTING - READY FOR INCOMING MESSAGES ===")
+    
+    # Construct the full webhook URL with token
+    FULL_WEBHOOK_URL = f"{WEBHOOK_URL}/{BOT_TOKEN}"
+
+    try:
+        # Construct the url_path with token - this is where Telegram will send webhooks
+        url_path_with_token = f"/webhook/{BOT_TOKEN}"
+        logger.info(f"Listening on url_path: {url_path_with_token}")
+        
         application.run_webhook(
             listen="0.0.0.0",
             port=port,
-            url_path=f"/{BOT_TOKEN}",
-            webhook_url=final_webhook,
+            url_path=url_path_with_token,
+            webhook_url=FULL_WEBHOOK_URL,  # Ensure Telegram sends to the correct path
         )
+    except KeyboardInterrupt:
+        logger.info("Bot interrupted by user")
     except Exception as e:
         logger.error(f"Bot failed to start: {e}", exc_info=True)
+        logger.error(f"Error type: {type(e).__name__}")
+        logger.error(f"Error message: {str(e)}")
+        import traceback
+        logger.error(f"Full traceback:\n{traceback.format_exc()}")
         raise
 
 

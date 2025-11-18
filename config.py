@@ -387,24 +387,33 @@ def get_base_webhook_url() -> str:
     return base.rstrip("/")
 
 
-def get_final_webhook_url() -> str:
-    """Return full webhook url (with token appended unless already present).
+def get_final_webhook_url():
+    """Returns the webhook URL with token appended for Telegram."""
+    import os
 
-    This central helper ensures `bot_refactored.py` and `handle_missed_vouches`
-    use the same final webhook to avoid duplication or mismatch.
-    """
-    from os import getenv
-    base = get_base_webhook_url()
-    token = getenv("BOT_TOKEN")
-    if token and base.endswith(token):
-        return base
-    if token:
-        # If base already ends with /webhook, append token directly after it
-        # Otherwise append /token
-        if base.endswith("/webhook"):
-            return f"{base}/{token}"
-        elif "/" not in base.split("://")[1]:  # No path after domain
-            return f"{base}/webhook/{token}"
+    base_webhook_url = os.getenv("WEBHOOK_URL")
+    bot_token = os.getenv("BOT_TOKEN")
+
+    if not base_webhook_url or not bot_token:
+        raise ValueError("WEBHOOK_URL and BOT_TOKEN must be set in the environment.")
+
+    # Append token if not already there
+    if not base_webhook_url.endswith(bot_token):
+        if base_webhook_url.endswith("/"):
+            return f"{base_webhook_url}{bot_token}"
         else:
-            return f"{base}/{token}"
-    return base
+            return f"{base_webhook_url}/{bot_token}"
+    
+    return base_webhook_url
+
+
+def validate_webhook_url():
+    """Validate the webhook URL for correctness."""
+    final_url = get_final_webhook_url()
+    if not final_url.startswith("https://"):
+        raise ValueError("Webhook URL must start with 'https://'.")
+    if "webhook" not in final_url:
+        raise ValueError("Webhook URL must include '/webhook'.")
+    if not final_url.endswith(os.getenv("BOT_TOKEN")):
+        raise ValueError("Webhook URL must end with the bot token.")
+    return final_url

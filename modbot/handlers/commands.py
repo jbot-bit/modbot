@@ -30,11 +30,9 @@ async def checkvouch_command(update: Update, context: ContextTypes.DEFAULT_TYPE)
     chat_id = update.effective_chat.id
     message_id = update.message.reply_to_message.message_id
 
-    # Check if vouch is logged
-    from vouch_db import search_vouches
-    vouches = search_vouches("", chat_id=chat_id, limit=1000)  # Get all vouches for this chat (or optimize if possible)
-    found = any(v.get("message_id") == message_id for v in vouches)
-    if found:
+    # Check if vouch is logged (using efficient message_id lookup)
+    from vouch_db import vouch_exists_by_message_id
+    if vouch_exists_by_message_id(chat_id, message_id):
         await update.message.reply_text("✅ This message is logged as a vouch.")
     else:
         await update.message.reply_text("❌ This message is NOT logged as a vouch.")
@@ -44,6 +42,11 @@ async def addvouch_command(update: Update, context: ContextTypes.DEFAULT_TYPE):
     """
     Admin-only. Reply to a message to manually log it as a vouch if not already logged.
     Usage: /addvouch (as a reply)
+    
+    This command:
+    1. Checks if the message is a valid vouch
+    2. Checks if the exact vouch (by message_id) is already in the database
+    3. If not, stores it using handle_clean_vouch
     """
     if update.effective_user.id != ADMIN_ID:
         await update.message.reply_text("⚠️ Admin only command.")
@@ -55,28 +58,33 @@ async def addvouch_command(update: Update, context: ContextTypes.DEFAULT_TYPE):
 
     chat_id = update.effective_chat.id
     message_id = update.message.reply_to_message.message_id
-
-    # Check if vouch is already logged
-    from vouch_db import search_vouches
-    vouches = search_vouches("", chat_id=chat_id, limit=1000)
-    found = any(v.get("message_id") == message_id for v in vouches)
-    if found:
-        await update.message.reply_text("✅ This message is already logged as a vouch.")
-        return
-
-    # Try to log the vouch using the same logic as live vouch handling
-    from moderation_engine.engine import is_vouch
-    from modbot.services.vouches import handle_clean_vouch
     msg = update.message.reply_to_message
+
+    # Validate it's a valid vouch first
+    from moderation_engine.engine import is_vouch
     if not msg.text or not is_vouch(msg.text):
         await update.message.reply_text("❌ The replied message does not look like a vouch.")
         return
+    
+    # Check if this exact vouch (by message_id) is already logged
+    from vouch_db import vouch_exists_by_message_id
+    if vouch_exists_by_message_id(chat_id, message_id):
+        await update.message.reply_text("✅ This message is already logged as a vouch (no duplicates).")
+        return
+
+    # Try to log the vouch using the same logic as live vouch handling
+    from modbot.services.vouches import handle_clean_vouch
     try:
-        await handle_clean_vouch(msg)
-        await update.message.reply_text("✅ Vouch has been logged.")
+        logger.info(f"Admin manually adding vouch from message {message_id} in chat {chat_id}")
+        await handle_clean_vouch(msg, from_username=msg.from_user.username)
+        confirmation_message = await update.message.reply_text("✅ Vouch has been logged successfully.")
+        # Auto-delete the confirmation message after 10 seconds
+        context.job_queue.run_once(lambda _: confirmation_message.delete(), 10)
     except Exception as e:
-        logger.error(f"Error logging vouch: {e}")
-        await update.message.reply_text("❌ Failed to log vouch. Check logs for details.")
+        logger.error(f"Error logging vouch in addvouch_command: {e}", exc_info=True)
+        error_message = await update.message.reply_text("❌ Failed to log vouch. Check logs for details.")
+        # Auto-delete the error message after 10 seconds
+        context.job_queue.run_once(lambda _: error_message.delete(), 10)
 
 
 async def start_command(update: Update, context: ContextTypes.DEFAULT_TYPE):
@@ -84,10 +92,13 @@ async def start_command(update: Update, context: ContextTypes.DEFAULT_TYPE):
     Sends the welcome message explaining the bot's purpose and key features.
     Triggered by the /start command.
     """
+    logger.info(f"=== START COMMAND TRIGGERED ===")
+    logger.info(f"User: {update.effective_user.id}, Chat: {update.effective_chat.id}")
     await update.message.reply_text(
         WELCOME_MESSAGE,
         parse_mode="Markdown"
     )
+    logger.info("START command response sent")
 
 
 async def commands_command(update: Update, context: ContextTypes.DEFAULT_TYPE):
@@ -114,20 +125,27 @@ async def help_command(update: Update, context: ContextTypes.DEFAULT_TYPE):
     Provides an interactive help menu with inline keyboard buttons.
     Triggered by the /help command.
     """
-    keyboard = [
-        [InlineKeyboardButton("📝 Vouching", callback_data="help_vouching")],
-        [InlineKeyboardButton("💬 Commands", callback_data="help_commands")],
-        [InlineKeyboardButton("🛡️ Moderation", callback_data="help_moderation")],
-        [InlineKeyboardButton("💡 Pro Tips", callback_data="help_tips")],
-        [InlineKeyboardButton("📖 Full Guide", callback_data="help_full")]
-    ]
-    reply_markup = InlineKeyboardMarkup(keyboard)
+    try:
+        logger.info(f"=== HELP COMMAND TRIGGERED ===")
+        logger.info(f"User: {update.effective_user.id}, Chat: {update.effective_chat.id}")
+        keyboard = [
+            [InlineKeyboardButton("📝 Vouching", callback_data="help_vouching")],
+            [InlineKeyboardButton("💬 Commands", callback_data="help_commands")],
+            [InlineKeyboardButton("🛡️ Moderation", callback_data="help_moderation")],
+            [InlineKeyboardButton("💡 Pro Tips", callback_data="help_tips")],
+            [InlineKeyboardButton("📖 Full Guide", callback_data="help_full")]
+        ]
+        reply_markup = InlineKeyboardMarkup(keyboard)
 
-    await update.message.reply_text(
-        "Welcome to our community bot! This group is dedicated to ensuring a safe and supportive environment for everyone. Use the buttons below to explore the bot's features:",
-        reply_markup=reply_markup,
-        parse_mode="Markdown"
-    )
+        await update.message.reply_text(
+            "Welcome to our community bot! This group is dedicated to ensuring a safe and supportive environment for everyone. Use the buttons below to explore the bot's features:",
+            reply_markup=reply_markup,
+            parse_mode="Markdown"
+        )
+        logger.info("HELP command response sent")
+    except Exception as e:
+        logger.error(f"Error in help_command: {e}", exc_info=True)
+        raise
 
 
 async def mystats_command(update: Update, context: ContextTypes.DEFAULT_TYPE):
@@ -210,9 +228,17 @@ async def search_command(update: Update, context: ContextTypes.DEFAULT_TYPE):
         await update.message.reply_text(stats_text, parse_mode="Markdown")
         return
 
-    query = " ".join(args)
-    vouches = search_vouches(query, chat_id=update.effective_chat.id, limit=50)
-    logger.debug("Search for query=%s in chat=%s returned %d results", query, update.effective_chat.id, len(vouches))
+    query = " ".join(args).lstrip('@')
+    logger.info(f"Executing search for query: {query}")
+
+    # Improve logic to handle empty queries and ensure robust search
+    if not query.strip():
+        await update.message.reply_text("❌ Please provide a valid username to search.")
+        return
+
+    vouches = search_vouches(query, chat_id=None, limit=50)  # Removed chat_id filter to search entire history
+    logger.info(f"Search results for query '{query}': {len(vouches)} vouches found.")
+
     if not vouches:
         await update.message.reply_text(f"No vouches found for: {query}")
         return
@@ -287,24 +313,24 @@ async def leaderboard_command(update: Update, context: ContextTypes.DEFAULT_TYPE
         except ValueError:
             await update.message.reply_text("❌ Usage: /leaderboard [days]\nExample: /leaderboard 7")
             return
-    
+
     chat_id = update.effective_chat.id
-    top_vouchers = get_top_vouchers(chat_id=chat_id, days=days, limit=10, polarity="pos")
-    
+    top_vouchers = get_top_vouchers(chat_id=None, days=days, limit=10, polarity="pos")  # Removed chat_id filter
+
     if not top_vouchers:
-        await update.message.reply_text(f"📊 No vouches in the last {days} day(s).")
+        await update.message.reply_text(f"📊 No vouches found in the last {days} day(s).")
         return
-    
+
     # Format leaderboard
     leaderboard_text = f"🏆 **Top Vouchers (Last {days} Day{'s' if days != 1 else ''})**\n\n"
-    
+
     for idx, voucher in enumerate(top_vouchers, 1):
         # Display username or user ID
         display_name = (
             f"@{voucher['from_username']}" if voucher['from_username'] 
             else voucher['from_display_name'] or f"User #{voucher['from_user_id']}"
         )
-        
+
         # Add medal emoji for top 3
         medal = ""
         if idx == 1:
@@ -315,9 +341,9 @@ async def leaderboard_command(update: Update, context: ContextTypes.DEFAULT_TYPE
             medal = "🥉 "
         else:
             medal = f"{idx}. "
-        
+
         leaderboard_text += f"{medal}{display_name}: **{voucher['vouch_count']}** vouches\n"
-    
+
     await update.message.reply_text(leaderboard_text, parse_mode="Markdown")
 
 
@@ -704,3 +730,53 @@ async def handle_missed_vouches(context: ContextTypes.DEFAULT_TYPE):
             logger.info("Webhook reconnected successfully.")
         except Exception as e:
             logger.error(f"Failed to reconnect webhook: {e}")
+
+
+async def debug_webhook(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    """Admin-only command to verify webhook functionality."""
+    if update.effective_user.id != ADMIN_ID:
+        await update.message.reply_text("⚠️ Admin only command.")
+        return
+
+    from config import get_final_webhook_url
+    try:
+        webhook_url = get_final_webhook_url()
+        
+        # Get webhook info from Telegram
+        webhook_info = await context.bot.get_webhook_info()
+        
+        response = f"""
+🔗 **Webhook Debug Info**
+
+**Configured URL:** {webhook_url}
+
+**Telegram Webhook Info:**
+• URL: {webhook_info.url}
+• Has Custom Certificate: {webhook_info.has_custom_certificate}
+• Pending Update Count: {webhook_info.pending_update_count}
+• IP Address: {webhook_info.ip_address}
+• Last Error Date: {webhook_info.last_error_date}
+• Last Error Message: {webhook_info.last_error_message}
+• Max Connections: {webhook_info.max_connections}
+• Allowed Updates: {webhook_info.allowed_updates}
+"""
+        await update.message.reply_text(response, parse_mode="Markdown")
+    except Exception as e:
+        logger.error(f"Error in debug_webhook: {e}", exc_info=True)
+        await update.message.reply_text(f"Error: {e}")
+
+
+async def reset_webhook(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    """Admin-only command to delete and reset the webhook."""
+    if update.effective_user.id != ADMIN_ID:
+        await update.message.reply_text("⚠️ Admin only command.")
+        return
+
+    try:
+        logger.info("Deleting old webhook...")
+        await context.bot.delete_webhook(drop_pending_updates=True)
+        await update.message.reply_text("✅ Old webhook deleted. Restart the bot to register with the correct token.")
+        logger.info("Webhook deleted successfully")
+    except Exception as e:
+        logger.error(f"Error deleting webhook: {e}", exc_info=True)
+        await update.message.reply_text(f"❌ Error: {e}")

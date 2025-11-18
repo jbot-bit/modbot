@@ -420,6 +420,34 @@ def normalize_existing_vouches():
         logger.error(f"Failed to normalize vouches: {e}")
 
 
+def vouch_exists_by_message_id(chat_id: int, message_id: int) -> bool:
+    """
+    Check if a vouch already exists for the given message_id in the chat.
+    This prevents exact duplicates from being stored.
+    
+    Args:
+        chat_id: Telegram chat ID
+        message_id: Telegram message ID
+    
+    Returns:
+        True if vouch exists, False otherwise
+    """
+    try:
+        conn = get_db_connection()
+        cursor = conn.cursor()
+        cursor.execute(
+            "SELECT COUNT(*) FROM vouches WHERE chat_id = ? AND message_id = ?",
+            (chat_id, message_id)
+        )
+        count = cursor.fetchone()[0]
+        conn.close()
+        logger.debug(f"vouch_exists_by_message_id: chat_id={chat_id}, message_id={message_id}, count={count}")
+        return count > 0
+    except Exception as e:
+        logger.error(f"Failed to check if vouch exists: {e}")
+        return False
+
+
 def store_vouch(
     from_user_id: int,
     from_username: Optional[str],
@@ -710,6 +738,7 @@ def search_vouches(
 ) -> List[Dict]:
     """
     Search vouches by username or display name.
+    Searches across all fields: from_username, to_username, from_display_name, to_display_name.
     
     Args:
         query: Username or display name to search for (with or without @)
@@ -726,30 +755,24 @@ def search_vouches(
         cursor = conn.cursor()
         
         # Clean query (remove @ if present and normalize for indexed search)
-        clean_query = query.lstrip('@').lower()
+        clean_query = query.strip().lstrip('@').lower()
+        search_pattern = f"%{clean_query}%"
         
-        # Build SQL query - use normalized columns for index efficiency
-        base_where = (
-            "(from_username_lower LIKE ? OR to_username_lower LIKE ? OR "
-            "from_display_name_lower LIKE ? OR to_display_name_lower LIKE ? )"
-        )
-        params = [f"%{clean_query}%"] * 4
+        logger.info(f"Search vouches: query='{query}' -> clean_query='{clean_query}'")
         
-        # If there is a known historical mapping of username -> user_id, expand the base condition
-        try:
-            cur_hist = conn.cursor()
-            cur_hist.execute("SELECT user_id FROM username_history WHERE username_lower = ?", (clean_query,))
-            hist_ids = [r[0] for r in cur_hist.fetchall()]
-        except Exception:
-            hist_ids = []
-
-        if hist_ids:
-            placeholders = ','.join('?' for _ in hist_ids)
-            base_where = f"({base_where} OR to_user_id IN ({placeholders}))"
-            params.extend(hist_ids)
-
-        sql = f"SELECT * FROM vouches WHERE {base_where}"
-
+        # Build SQL query - search all relevant columns using normalized lowercase columns
+        sql = """
+            SELECT * FROM vouches 
+            WHERE (
+                from_username_lower LIKE ? 
+                OR to_username_lower LIKE ? 
+                OR from_display_name_lower LIKE ? 
+                OR to_display_name_lower LIKE ?
+            )
+        """
+        params = [search_pattern, search_pattern, search_pattern, search_pattern]
+        
+        # Apply optional filters
         if chat_id:
             sql += " AND chat_id = ?"
             params.append(chat_id)
@@ -757,29 +780,17 @@ def search_vouches(
         if polarity:
             sql += " AND polarity = ?"
             params.append(polarity)
-            
-        # If this query is for a username, expand it to include vouches mapped by user id (username history)
-        try:
-            hist_cur = conn.cursor()
-            hist_cur.execute("SELECT user_id FROM username_history WHERE username_lower = ?", (clean_query,))
-            user_ids = [r[0] for r in hist_cur.fetchall()]
-        except Exception:
-            user_ids = []
-
-        if user_ids:
-            placeholders = ','.join('?' for _ in user_ids)
-            # add to conditions that the resolved to_user_id also matches
-            sql += f" OR to_user_id IN ({placeholders})"
-            params.extend(user_ids)
-
+        
+        # Order by timestamp and apply limit
         sql += " ORDER BY timestamp DESC LIMIT ?"
         params.append(limit)
         
+        logger.info(f"Executing SQL: {sql} with params: {params}")
         cursor.execute(sql, params)
         results = cursor.fetchall()
         conn.close()
         
-        logger.debug(f"Search query='{query}' in chat={chat_id}, polarity={polarity} returned {len(results)} vouches")
+        logger.info(f"Search query='{query}' returned {len(results)} vouches")
         
         # Convert to list of dicts
         vouches = []
@@ -804,7 +815,7 @@ def search_vouches(
         return vouches
         
     except Exception as e:
-        logger.error(f"Failed to search vouches: {e}")
+        logger.error(f"Failed to search vouches: {e}", exc_info=True)
         return []
 
 
@@ -906,33 +917,26 @@ def get_top_vouchers(
         # Calculate cutoff timestamp (now - N days)
         cutoff_timestamp = datetime.now(UTC).timestamp() - (days * 86400)
         
-        # Build WHERE clause
-        where_parts = [f"timestamp > {cutoff_timestamp}"]
+        # Build parameterized query to prevent SQL injection
+        sql = "SELECT from_user_id, from_username, from_display_name, COUNT(*) as vouch_count FROM vouches WHERE timestamp > ?"
+        params = [cutoff_timestamp]
+        
         if chat_id:
-            where_parts.append(f"chat_id = {chat_id}")
+            sql += " AND chat_id = ?"
+            params.append(chat_id)
+            
         if polarity != "all":
-            where_parts.append(f"polarity = '{polarity}'")
+            sql += " AND polarity = ?"
+            params.append(polarity)
         
-        where_clause = " AND ".join(where_parts)
+        sql += " GROUP BY from_user_id ORDER BY vouch_count DESC LIMIT ?"
+        params.append(limit)
         
-        # Query: group by from_user_id, count vouches, order by count desc
-        sql = f"""
-            SELECT 
-                from_user_id, 
-                from_username, 
-                from_display_name,
-                COUNT(*) as vouch_count
-            FROM vouches
-            WHERE {where_clause}
-            GROUP BY from_user_id
-            ORDER BY vouch_count DESC
-            LIMIT ?
-        """
-        
-        cursor.execute(sql, (limit,))
+        logger.info(f"get_top_vouchers: chat_id={chat_id}, days={days}, polarity={polarity}")
+        cursor.execute(sql, params)
         results = cursor.fetchall()
         conn.close()
-        logger.debug("get_top_vouchers: chat_id=%s days=%s results=%d", chat_id, days, len(results))
+        logger.info(f"get_top_vouchers returned {len(results)} results")
         
         # Convert to list of dicts
         vouchers = []
@@ -947,7 +951,7 @@ def get_top_vouchers(
         return vouchers
         
     except Exception as e:
-        logger.error(f"Failed to get top vouchers: {e}")
+        logger.error(f"Failed to get top vouchers: {e}", exc_info=True)
         return []
 
 
